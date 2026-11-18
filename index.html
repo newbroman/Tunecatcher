@@ -128,6 +128,17 @@ dialog li{margin:.4em 0}
 .hint.left{text-align:left;margin:8px 0 0}
 .recphrase{color:var(--amber);font-family:var(--serif);font-size:1.15rem;margin:0 0 6px}
 @media print{#phraseBox{display:none!important}}
+
+.linkbtn{background:none;color:var(--amber);border-bottom:1px dashed rgba(242,184,75,.5);border-radius:0;padding:.2em 0;margin-top:1.4em}
+.check{padding-top:1vh}.check h2{font-family:var(--serif);font-weight:400;font-size:1.6rem;margin:.2em 0}
+.check .opt{margin:8px 0}.check .opt select{max-width:62%}
+.ckwords{font-family:var(--serif);font-size:1.05rem;color:var(--text);background:var(--ink2);border-radius:12px;padding:.7em .9em}
+.ckscore{font-family:var(--serif);font-size:1.5rem;text-align:center;margin:.6em 0 .4em}
+.chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center}
+.chips span{padding:.25em .5em;border-radius:8px;font-size:.85rem;background:#1f5d3a;color:#d9ffe8}.chips span.no{background:#7a4a00;color:#ffe2b0}
+#ckTable{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:6px}#ckTable td,#ckTable th{padding:.3em .2em;text-align:left;border-top:1px solid var(--ink3)}#ckTable th{color:var(--dim);font-weight:500;border-top:0}
+.takes{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px 1.2em}.takes button{padding:.2em .55em;font-size:.78rem;background:var(--ink3)}
+#phraseList li{flex-wrap:wrap}#phraseList .takes{flex-basis:100%}
 </style>
 </head>
 <body>
@@ -149,7 +160,8 @@ dialog li{margin:.4em 0}
   </div>
   <p id="noMic" class="warn" hidden>This browser can’t use the microphone here. You can still open a recording.</p>
   <label class="filebtn">Open a recording<input id="file" type="file" accept="audio/*,video/*" hidden></label>
-  <div id="listWrap" hidden><h2>Your catches</h2><ul id="list"></ul></div>
+  <div id="listWrap" hidden><h2>Your songs</h2><ul id="list"></ul></div>
+  <p><button id="checkBtn" class="linkbtn">Check how well it hears you</button></p>
   <p class="privacy">Everything happens on this phone. Nothing is uploaded.</p>
 </section>
 
@@ -162,6 +174,23 @@ dialog li{margin:.4em 0}
   <div id="recTime" class="time">0:00</div>
   <p class="tip">Hum on “mm” or “da”. Give repeated notes a little gap.</p>
   <div class="row"><button id="cancel" class="ghost">Cancel</button><button id="stop" class="primary">■ Done</button></div>
+</section>
+
+<section data-view="check" class="check" hidden>
+  <h2>How well does it hear you?</h2>
+  <p class="tip">Sing a tune it already knows and it shows how many notes it heard right. Try it different ways and see which works best for your voice.</p>
+  <label class="opt"><span>Tune</span><select id="ckTune"></select></label>
+  <label class="opt"><span>How</span><select id="ckHow"><option value="da">Hummed on “da da”</option><option value="mm">Hummed, mouth closed</option><option value="la">Sung on “la la”</option><option value="words">Sung with the words</option></select></label>
+  <p id="ckWords" class="ckwords"></p>
+  <div class="row"><button id="ckGo" class="primary">● Sing it</button></div>
+  <div id="ckResult" hidden>
+    <p id="ckScore" class="ckscore"></p>
+    <div id="ckChips" class="chips"></div>
+    <p class="tip">Green: heard right. Orange: missed or heard wrong.</p>
+    <div class="row"><button id="ckSave" class="secondary">Save the recording</button></div>
+  </div>
+  <div id="ckHist" class="wordsbox" hidden><div class="wordshead"><b>Your results so far</b><button id="ckClear" class="ghost">Clear</button></div><table id="ckTable"></table></div>
+  <button id="ckBack" class="ghost">Back</button>
 </section>
 
 <section data-view="work" class="work" hidden>
@@ -195,8 +224,8 @@ dialog li{margin:.4em 0}
   </div>
   <div id="wordsBox" class="wordsbox">
     <div class="wordshead"><b>Words</b><span id="wordsStatus"></span></div>
-    <textarea id="wordsText" rows="3" placeholder="Type the words here, or tap “Listen for the words”."></textarea>
-    <div class="row left"><button id="wordsApply" class="secondary">Put under the notes</button><button id="wordsListen" class="secondary">Listen for the words</button><button id="wordsClear" class="ghost">Clear</button></div>
+    <textarea id="wordsText" rows="3" placeholder="When the tune is right: type the words here, or tap “Sing or say the words”."></textarea>
+    <div class="row left"><button id="wordsApply" class="secondary">Put under the notes</button><button id="wordsRec" class="secondary">● Sing or say the words</button><button id="wordsListen" class="ghost">From the first recording</button><button id="wordsClear" class="ghost">Clear</button></div>
   </div>
   <div class="controls">
     <label>Key<select id="keySel"></select></label>
@@ -213,7 +242,8 @@ dialog li{margin:.4em 0}
       <button data-export="print">Print or PDF</button>
       <button id="wavBtn" data-export="wav">My humming<small>as a sound file (WAV)</small></button>
     </details>
-    <button id="again" class="secondary">Hum another</button>
+    <button id="addPart" class="secondary">Add the next part</button>
+    <button id="again" class="ghost">New song</button>
   </div>
 </section>
 </main>
@@ -221,12 +251,14 @@ dialog li{margin:.4em 0}
 <dialog id="help">
   <h2>How to catch a tune</h2>
   <ol>
-    <li>Tap the microphone and hum, on “mm”, “da” or “la”, or sing. Turn on <i>Write the words too</i> and the words go under the notes.</li>
+    <li>Tap the microphone and hum the tune, on “da” or “la”. Get the tune right first; the words come afterwards.</li>
+    <li>When the tune is right, go to <i>Words</i> and tap <i>Sing or say the words</i> (or type them). They are spread under the notes in order, one syllable to a note.</li>
     <li>For the best rhythm, turn on the <i>count-in click</i>: choose 3 or 4 beats and a tempo, wait for the count, and sing along with the click. Headphones keep the click out of the recording.</li>
     <li>Leave a small gap between repeated notes, so they come out as two.</li>
     <li>Keep a steady beat. Tunecatcher works out the tempo, the time and the key.</li>
     <li>Tap ■ Done. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
     <li>Sing the whole song once. Then, under <i>Phrases</i>, sing any phrase again, as many times as you like, in any key: Tunecatcher lines the takes up and keeps what most of them agree on.</li>
+    <li>A long song can be built in parts: sing the first part, then <i>Add the next part</i> and sing on from there. Each part joins the end of the song.</li>
     <li>Wrong time or a rhythm that looks twice too fast or slow? Change Time, or use ½ and ×2.</li>
   </ol>
   <p>Your humming never leaves the phone. Catches are kept on this device only.</p>
@@ -695,19 +727,67 @@ function consensus(takes,g,step,scale){
   const ref=notes.find(x=>x.t!=null);for(const x of notes)if(x.t==null&&ref)x.t=ref.t+(x.p-ref.p)*g;
   return notes}
 function addTake(song,pi,raw){
-  const ev=song.ev,P=phrasesOf(ev)[pi];if(!P||!raw.length)return false;const cur=ev.slice(P.i0,P.i1),head=cur[0];
-  const g=60/song.bpm/4,step=g<PARAMS.FINE?2:1,origin=head.s-(head.p0||0);
+  const ev=song.ev,P=phrasesOf(ev)[pi];if(!P||!raw.length)return false;const cur=ev.slice(P.i0,P.i1),head=cur[0],origin=head.s-(head.p0||0);
   const takes=head.takes?head.takes.slice():[{q:true,n:cur.map(x=>({k:x.k,p:x.s-origin,d:x.e-x.s,t:x.t}))}];
   takes.push({n:raw.map(x=>({k:x.k,m:x.m==null?undefined:+x.m.toFixed(2),t:+x.t.toFixed(3),d:+x.d.toFixed(3)}))});while(takes.length>6)takes.splice(1,1);
+  return rebuildPhrase(song,pi,takes)}
+// take ti (1 or more: the first is the whole-song catch) is thrown away and the phrase worked out again from the rest
+function removeTake(song,pi,ti){const P=phrasesOf(song.ev)[pi];if(!P)return false;const head=song.ev[P.i0];if(!head.takes||ti<1||ti>=head.takes.length)return false;
+  const takes=head.takes.slice();takes.splice(ti,1);return rebuildPhrase(song,pi,takes)}
+function rebuildPhrase(song,pi,takes){
+  const ev=song.ev,P=phrasesOf(ev)[pi],head=ev[P.i0],g=60/song.bpm/4,step=g<PARAMS.FINE?2:1,origin=head.s-(head.p0||0);
   let scale=null;if(song.K){scale=new Array(12).fill(false);for(const st of (song.K.mode==='major'?[0,2,4,5,7,9,11]:[0,2,3,5,7,8,10,11]))scale[(song.K.pc+st)%12]=true}
   const con=consensus(takes,g,step,scale);if(!con.length)return false;
   const fresh=con.map(x=>{const o={k:x.k,vel:90,s:origin+x.p,e:origin+x.p+x.d};if(x.t!=null)o.t=x.t;if(x.un)o.un=true;return o});
-  fresh[0].pb=true;fresh[0].takes=takes;fresh[0].p0=con[0].p;
+  fresh[0].pb=true;if(takes.length>1){fresh[0].takes=takes;fresh[0].p0=con[0].p}
   // keep clear of the phrases on either side
-  const prev=ev[P.i0-1];if(prev&&fresh[0].s<prev.e){const sh=prev.e-fresh[0].s;for(const x of fresh){x.s+=sh;x.e+=sh}fresh[0].p0-=0}
+  const prev=ev[P.i0-1];if(prev&&fresh[0].s<prev.e){const sh=prev.e-fresh[0].s;for(const x of fresh){x.s+=sh;x.e+=sh}}
   const rest=ev.slice(P.i1);const end=fresh[fresh.length-1].e;
   if(rest.length&&rest[0].s<end){const bt=METRES[song.metre].beat,sh=Math.ceil((end-rest[0].s)/bt)*bt;for(const x of rest){x.s+=sh;x.e+=sh}}
   song.ev=ev.slice(0,P.i0).concat(fresh,rest);return true}
+// a further part of the song, sung separately: it goes on the end, starting at the next bar line
+function addPart(song,part){if(!part.ev.length)return false;const L=METRES[song.metre].len,last=song.ev[song.ev.length-1],base=Math.ceil((last?last.e:0)/L)*L;
+  const z=Math.floor(part.ev[0].s/L)*L;const add=part.ev.map(n=>{const o={k:n.k,vel:n.vel,s:n.s-z+base,e:n.e-z+base};if(n.pb)o.pb=true;return o});add[0].pb=true;
+  song.ev=song.ev.concat(add);return true}
+// which notes of a known tune were heard: the heard notes lined up with the tune in the key they were sung in
+function tuneMatch(got,truth){let best=null;for(let tr=-18;tr<=18;tr++){const a=alignKeys(truth,got,tr);if(!best||a.cost<best.cost)best={cost:a.cost,tr,ops:a.ops}}
+  const ok=truth.map(()=>false);let extra=0;for(const [i,j] of best.ops){if(i>=0&&j>=0&&got[j]+best.tr===truth[i])ok[i]=true;if(i<0)extra++}
+  return {tr:best.tr,ok,right:ok.filter(Boolean).length,extra}}
+
+/* ---------- known tunes, and tuning the listening to one voice ----------
+   The user sings a tune the app already knows. What was heard is compared with the real notes, and the settings of the
+   note finder are searched for the ones that hear this voice best. All tunes here are in the public domain. */
+const TUNES=[
+ {id:'birthday',name:'Happy Birthday',metre:'3/4',words:'Happy birthday to you, happy birthday to you, happy birthday dear (name), happy birthday to you',
+  k:[60,60,62,60,65,64,60,60,62,60,67,65,60,60,72,69,65,64,62,70,70,69,65,67,65]},
+ {id:'twinkle',name:'Twinkle, Twinkle, Little Star',metre:'4/4',words:'Twinkle, twinkle, little star, how I wonder what you are',
+  k:[60,60,67,67,69,69,67,65,65,64,64,62,62,60]},
+ {id:'jacques',name:'Frère Jacques',metre:'4/4',words:'Frère Jacques, Frère Jacques, dormez-vous, dormez-vous? Sonnez les matines, sonnez les matines, ding dang dong, ding dang dong',
+  k:[60,62,64,60,60,62,64,60,64,65,67,64,65,67,67,69,67,65,64,60,67,69,67,65,64,60,60,55,60,60,55,60]},
+ {id:'auld',name:'Auld Lang Syne',metre:'4/4',words:'Should auld acquaintance be forgot, and never brought to mind? Should auld acquaintance be forgot, and auld lang syne',
+  k:[60,65,65,65,69,67,65,67,69,65,65,69,72,74,74,72,69,69,65,67,65,67,69,65,62,62,60,65]},
+ {id:'row',name:'Row, Row, Row Your Boat',metre:'6/8',words:'Row, row, row your boat, gently down the stream. Merrily, merrily, merrily, merrily, life is but a dream',
+  k:[60,60,60,62,64,64,62,64,65,67,72,72,72,67,67,67,64,64,64,60,60,60,67,65,64,62,60]},
+];
+function editDist(a,b){const N=a.length,M=b.length;let prev=Array.from({length:M+1},(_,j)=>j);for(let i=1;i<=N;i++){const cur=[i];for(let j=1;j<=M;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=cur}return prev[M]}
+// how far the heard notes are from the tune, in any key: the number of notes to add, drop or change
+function tuneScore(got,truth){let best=Infinity;for(let tr=-18;tr<=18;tr++){const d=editDist(got.map(k=>k+tr),truth);if(d<best)best=d}return best}
+const DEFAULTS=Object.assign({},PARAMS);
+const SEARCH={SIG:[0.5,0.7,0.9],P_CHANGE:[6,9,13],MIN:[5,6,8,10],SLIDE:[6,9,12,15],SCOOP:[10,16,22],VALLEY:[0.5,0.6,0.7],DEEP:[0.25,0.35,0.45],GATE:[0.03,0.04,0.06],SNAP:[0.7,0.9],KEYC:[0.45,0.6,0.75]};
+// tracks: [{tr:<track()>, truth:[midi…]}]. Returns the settings that hear them best, with the score before and after.
+function calibrate(tracks,from){
+  const keep=Object.assign({},PARAMS);Object.assign(PARAMS,DEFAULTS,from||{});
+  const total=()=>{let s=0;for(const t of tracks)s+=tuneScore(segment(t.tr).notes.map(n=>n.k),t.truth);return s};
+  Object.assign(PARAMS,DEFAULTS);const base=total();Object.assign(PARAMS,DEFAULTS,from||{});let best=total();
+  for(let round=0;round<2;round++){let moved=false;for(const key of Object.keys(SEARCH)){const was=PARAMS[key];let bv=was;
+      for(const v of SEARCH[key]){if(v===was)continue;PARAMS[key]=v;const sc=total()+(v===DEFAULTS[key]?0:0.25);   // a setting has to earn its move away from the default
+        if(sc<best-1e-9){best=sc;bv=v}}
+      PARAMS[key]=bv;if(bv!==was)moved=true}
+    if(!moved)break}
+  const out={};for(const key of Object.keys(SEARCH))if(PARAMS[key]!==DEFAULTS[key])out[key]=PARAMS[key];
+  const after=total();Object.assign(PARAMS,keep);
+  return {params:out,before:base,after,notes:tracks.reduce((q,t)=>q+t.truth.length,0)}}
+function useParams(o){Object.assign(PARAMS,DEFAULTS,o||{})}
 
 /* ---------- the whole way: samples → song ---------- */
 function transcribe(x,opt){
@@ -729,7 +809,7 @@ function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);con
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,PARAMS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,removeTake,addPart,tuneMatch,TUNES,tuneScore,calibrate,useParams,DEFAULTS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
@@ -780,7 +860,10 @@ async function startRec(){
   const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
   S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:performance.now(),trail:[],get n(){return n},get capStart(){return capStart}};
   $('#recPhrase').hidden=!rt;if(rt)$('#recPhrase').textContent='Phrase '+(rt.pi+1)+': '+rt.text;
-  if(SET.click&&!rt){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
+  if(S.check){$('#recPhrase').hidden=false;$('#recPhrase').textContent=S.check.tune.name}
+  if(S.addPart){$('#recPhrase').hidden=false;$('#recPhrase').textContent='The next part of “'+(S.cur.title||'your song')+'”'}
+  if(S.wordsTake){$('#recPhrase').hidden=false;$('#recPhrase').textContent='The words of “'+(S.cur.title||'your song')+'”'}
+  if(SET.click&&!rt&&!S.addPart&&!S.check&&!S.wordsTake){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
     S.rec.click.out.connect(ctx.destination);scheduleClicks();S.rec.click.timer=setInterval(scheduleClicks,40);
     $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
   else $('#beatDots').hidden=true;
@@ -797,11 +880,14 @@ function stopRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);
   const len=r.chunks.reduce((s,c)=>s+c.length,0);const x=new Float32Array(len);let o=0;for(const c of r.chunks){x.set(c,o);o+=c.length}
   const rt=S.retake;S.retake=null;
   if(rt){if(len<r.sr*0.4){toast('That was too short.');show('result');return}analyseRetake(x,r.sr,rt);return}
+  if(S.check){if(len<r.sr*1){toast('That was too short.');show('check');return}checkDone(x,r.sr);return}
+  if(S.wordsTake){S.wordsTake=false;show('result');if(len<r.sr*0.5){toast('That was too short.');return}prep(x,r.sr).then(y=>listenWords(y));return}
+  if(S.addPart){S.addPart=false;if(len<r.sr*1){toast('That was too short.');show('result');return}analysePart(x,r.sr);return}
   if(len<r.sr*1){toast('That was too short to catch anything.');show('home');return}
   const opt={};if(r.click&&isFinite(r.capStart)){opt.bpm=r.click.bpm;opt.metre=r.click.beats===3?'3/4':'4/4';const cx=AC;opt.grid={t0:r.click.downbeat-r.capStart,lat:Math.min(0.3,(cx.outputLatency||0)+(cx.baseLatency||0)+0.03)}}
   analyse(x,r.sr,(SET.words?'Sung ':'Hummed ')+new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}),opt);
 }
-function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}const rt=S.retake;S.retake=null;show(rt?'result':'home')}
+function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}const rt=S.retake,ap=S.addPart||S.wordsTake;S.retake=null;S.addPart=false;S.wordsTake=false;show(S.check?'check':rt||ap?'result':'home')}
 
 // the live view: the note being hummed and a trail of the pitch
 function liveLoop(){const r=S.rec;if(!r)return;
@@ -851,13 +937,34 @@ async function analyseRetake(x,sr,rt){show('work');$('#workMsg').textContent='Ad
   relyric();S.cur.edited=true;S.sel=-1;saveCur();show('result');syncControls();render();
   const P=TC.phrasesOf(S.cur.song.ev)[rt.pi],h=S.cur.song.ev[P.i0],un=S.cur.song.ev.slice(P.i0,P.i1).filter(n=>n.un).length;
   toast(`Phrase ${rt.pi+1}: ${h.takes.length} takes`+(un?`, ${un} note${un>1?'s':''} to check (orange)`:', all agreed'),3500)}
+// a further part of the song, sung separately and joined on the end
+async function analysePart(x,sr){show('work');$('#workMsg').textContent='Adding the next part…';await new Promise(r=>setTimeout(r,60));
+  const y=await prep(x,sr),c=S.cur,r=TC.transcribe(y,{bpm:c.song.bpm,metre:c.song.metre,key:c.song.K});
+  if(!r.ok){toast('No clear tune in that part. Try it again.',4000);show('result');return}
+  push();if(c.words){c.wordsTyped=TC.lyricsText(c.song.ev);c.words=null}
+  TC.addPart(c.song,r.song);c.parts=(c.parts||1)+1;c.edited=true;S.sel=-1;saveCur();show('result');syncControls();render();toast('Part '+c.parts+' added: '+r.song.ev.length+' notes',3000)}
+/* ---------- check: a known tune, to see how well this voice is heard ---------- */
+const HOW={da:'“da da”',mm:'mouth closed',la:'“la la”',words:'the words'};
+function checkOpen(){S.check=null;stopPlay();show('check');$('#ckResult').hidden=true;ckTune();ckHist()}
+function ckTune(){const t=TC.TUNES.find(t=>t.id===$('#ckTune').value)||TC.TUNES[0];$('#ckWords').textContent=t.words}
+function ckHist(){const h=store.get('tc.checks',[]);$('#ckHist').hidden=!h.length;if(!h.length)return;const by={};for(const r of h){const b=by[r.how]=by[r.how]||{n:0,right:0,total:0};b.n++;b.right+=r.right;b.total+=r.total}
+  $('#ckTable').innerHTML='<tr><th>How</th><th>Tries</th><th>Notes heard right</th></tr>'+Object.keys(by).sort((a,b)=>by[b].right/by[b].total-by[a].right/by[a].total).map(k=>`<tr><td>${HOW[k]||k}</td><td>${by[k].n}</td><td>${Math.round(100*by[k].right/by[k].total)}%</td></tr>`).join('')}
+async function checkDone(x,sr){const ck=S.check;show('work');$('#workMsg').textContent='Comparing with the tune…';await new Promise(r=>setTimeout(r,60));
+  const y=await prep(x,sr),notes=TC.segment(TC.track(y)).notes,t=ck.tune,m=TC.tuneMatch(notes.map(n=>n.k),t.k);
+  ck.audio={x,sr};ck.right=m.right;S.check=null;S.lastCheck=ck;show('check');$('#ckResult').hidden=false;
+  $('#ckScore').textContent=`Heard ${m.right} of ${t.k.length} notes right`+(m.extra?` (and ${m.extra} extra)`:'');
+  $('#ckChips').innerHTML=t.k.map((k,i)=>`<span class="${m.ok[i]?'':'no'}">${TC.noteName(k-m.tr).replace(/-?\d+$/,'')}</span>`).join('');
+  const h=store.get('tc.checks',[]);h.push({tune:t.id,how:ck.how,right:m.right,total:t.k.length,extra:m.extra,date:Date.now()});store.set('tc.checks',h.slice(-200));ckHist()}
 function singPhrase(pi){const P=TC.phrasesOf(S.cur.song.ev)[pi];if(!P)return;S.retake={pi,i0:P.i0,text:phraseText(P)};startRec()}
 function phraseText(P){const ev=S.cur.song.ev.slice(P.i0,P.i1);const w=TC.lyricsText(ev);return w||ev.slice(0,6).map(n=>spelt(n.k)).join(' ')+(ev.length>6?' …':'')}
 function renderPhrases(){const ul=$('#phraseList');ul.innerHTML='';const ev=S.cur.song.ev;TC.ensurePhrases(ev);
   TC.phrasesOf(ev).forEach((P,pi)=>{const li=document.createElement('li'),h=ev[P.i0],nt=h.takes?h.takes.length:1,un=ev.slice(P.i0,P.i1).filter(n=>n.un).length;
     li.innerHTML='<span class="ptxt"></span><button class="ghost" aria-label="Play this phrase">▶</button><button class="secondary">Sing again</button>';
     const t=li.querySelector('.ptxt');t.textContent=(pi+1)+' · '+phraseText(P);const sm=document.createElement('small');sm.textContent=(nt>1?nt+' takes':'')+(un?(nt>1?', ':'')+un+' to check':'');t.appendChild(sm);
-    const [bp,bs]=li.querySelectorAll('button');bp.onclick=()=>playTune([P.i0,P.i1]);bs.onclick=()=>{stopPlay();singPhrase(pi)};ul.appendChild(li)})}
+    const [bp,bs]=li.querySelectorAll('button');bp.onclick=()=>playTune([P.i0,P.i1]);bs.onclick=()=>{stopPlay();singPhrase(pi)};
+    if(nt>1){const d=document.createElement('div');d.className='takes';for(let ti=1;ti<nt;ti++){const b=document.createElement('button');b.textContent='take '+(ti+1)+' ✕';b.setAttribute('aria-label','Remove take '+(ti+1));
+        b.onclick=()=>{push();if(TC.removeTake(S.cur.song,pi,ti)){relyric();saveCur();syncControls();render()}else S.undo.pop()};d.appendChild(b)}li.appendChild(d)}
+    ul.appendChild(li)})}
 async function analyse(x,sr,title,opt){opt=opt||{};
   show('work');$('#workMsg').textContent='Catching the notes…';
   S.audio={x,sr};
@@ -896,9 +1003,11 @@ function onWords(e){const d=e.data,st=$('#wordsStatus');if(d.type==='progress'||
   // when it heard too few, listen again to the same singing a little differently, and keep the hearing that fits the notes best
   const words=d.words.filter(w=>w.w).map(w=>({w:w.w,s:w.s+job.shift,e:w.e+job.shift}));const nsyl=TC.countSyllables(words),want=S.cur.song.ev.length;
   const fit=Math.abs(nsyl-want)/Math.max(1,want);if(!job.best||fit<job.best.fit)job.best={words,fit};
-  if(!d.timeout&&nsyl<want*0.8&&job.tries<VARIANTS.length){dog();const v=VARIANTS[job.tries++](S.y,S.cur.notes);job.shift=v.shift;st.textContent='Listening again…';W.postMessage({audio:v.audio,enc:window.TC_ENC});return}
+  if(!d.timeout&&nsyl<want*0.8&&job.tries<VARIANTS.length){dog();const v=VARIANTS[job.tries++](job.own||S.y,job.own?[]:S.cur.notes);job.shift=v.shift;st.textContent='Listening again…';W.postMessage({audio:v.audio,enc:window.TC_ENC});return}
   wJob=null;$('#wordsListen').disabled=false;const best=job.best.words;
   if(!best.length){st.textContent='No words heard.';return}
+  if(job.own){   // the words were sung or said afterwards: they go under the notes in order
+    const t=best.map(w=>w.w).join(' ');S.cur.wordsTyped=t;S.cur.words=null;push();TC.setLyricsInOrder(S.cur.song.ev,t);TC.phrasesFromWords(S.cur.song.ev);saveCur();syncControls();st.textContent='Check the words, correct them here, then “Put under the notes”.';$('#wordsText').value=t;render();return}
   S.cur.words=best;S.cur.wordsTyped=null;TC.setLyrics(S.cur.song.ev,best);TC.phrasesFromWords(S.cur.song.ev);saveCur();st.textContent='Check the words, correct them here, then “Put under the notes”.';$('#wordsText').value=TC.lyricsText(S.cur.song.ev);render()}
 const VARIANTS=[
   y=>({audio:y.map(v=>v*0.5),shift:0}),
@@ -906,8 +1015,8 @@ const VARIANTS=[
   (y,notes)=>{const t=Math.max(0,(notes[0]?notes[0].t:0)-0.15),i=Math.floor(t*TC.SR);return {audio:y.slice(i).map(v=>v*0.5),shift:i/TC.SR}},
 ];
 function askWords(){return new Promise(res=>{const d=$('#wordsAsk');$('#wordsYes').onclick=()=>{d.close();SET.wordsOk=true;saveSet();res(true)};$('#wordsNo').onclick=()=>{d.close();res(false)};d.showModal()})}
-async function listenWords(){if(!S.cur||!S.y)return;if(!SET.wordsOk&&!(await askWords()))return;if(wJob)return;
-  wJob={id:S.cur.id,tries:0,shift:0,best:null};$('#wordsListen').disabled=true;$('#wordsStatus').textContent='Starting the speech model…';dog();worker().postMessage({audio:S.y,enc:window.TC_ENC})}
+async function listenWords(own){own=own instanceof Float32Array?own:null;if(!S.cur||!(own||S.y))return;if(!SET.wordsOk&&!(await askWords()))return;if(wJob)return;
+  wJob={id:S.cur.id,tries:0,shift:0,best:null,own};$('#wordsListen').disabled=true;$('#wordsStatus').textContent='Starting the speech model…';dog();worker().postMessage({audio:own||S.y,enc:window.TC_ENC})}
 function relyric(){const c=S.cur;if(c.words)TC.setLyrics(c.song.ev,c.words);else if(c.wordsTyped)TC.setLyricsInOrder(c.song.ev,c.wordsTyped)}
 
 /* ---------- the result ---------- */
@@ -953,7 +1062,7 @@ function undo(){if(!S.undo.length)return;S.cur.song=JSON.parse(S.undo.pop());S.s
 function setKey(v){const [f,m]=v.split('|');edit(s=>{s.K=TC.keyFromFifths(+f,m)})}
 function setMetre(mt){edit(s=>{const p=TC.place(s.ev,mt);s.ev=p.ev;s.pickup=p.pickup;s.metre=mt})}
 function setTempo(bpm){bpm=Math.max(30,Math.min(260,Math.round(bpm)));const c=S.cur;
-  if(c.song.ev.some(n=>n.takes)){   // with several takes the notes stay as they are: only the speed changes (½ and ×2 rescale the note values)
+  if(c.song.ev.some(n=>n.takes)||c.parts){   // with several takes the notes stay as they are: only the speed changes (½ and ×2 rescale the note values)
     const f=bpm/c.song.bpm,sc=Math.abs(f-2)<0.05?2:Math.abs(f-0.5)<0.03?0.5:1;
     edit(s=>{if(sc!==1){const z=s.ev[0].s;let last=-1;for(const n of s.ev){let a=Math.round((n.s-z)*sc),b=Math.round((n.e-z)*sc);if(a<=last)a=last+1;if(b<=a)b=a+1;last=a;n.s=a;n.e=b}
       for(let i=0;i<s.ev.length-1;i++)if(s.ev[i].e>s.ev[i+1].s)s.ev[i].e=s.ev[i+1].s;for(const n of s.ev){delete n.takes;delete n.p0}const p=TC.place(s.ev,s.metre);s.ev=p.ev;s.pickup=p.pickup}s.bpm=bpm});return}
@@ -1010,8 +1119,14 @@ function init(){
   const ks=$('#keySel');for(const mode of ['major','minor'])for(let f=-6;f<=6;f++){const K=TC.keyFromFifths(f,mode);const o=document.createElement('option');o.value=`${f}|${mode}`;o.textContent=K.name;ks.appendChild(o)}
   $('#catch').onclick=startRec;$('#stop').onclick=stopRec;$('#cancel').onclick=cancelRec;
   $('#file').onchange=e=>{openFile(e.target.files[0]);e.target.value=''};
-  $('#home').onclick=()=>{stopPlay();show('home')};
+  $('#home').onclick=()=>{stopPlay();if(S.rec)cancelRec();S.check=null;show('home')};
   $('#again').onclick=()=>{stopPlay();startRec()};
+  $('#addPart').onclick=()=>{stopPlay();S.addPart=true;startRec()};
+  const ct=$('#ckTune');for(const t of TC.TUNES){const o=document.createElement('option');o.value=t.id;o.textContent=t.name;ct.appendChild(o)}ct.onchange=ckTune;
+  $('#checkBtn').onclick=checkOpen;$('#ckBack').onclick=()=>show('home');
+  $('#ckGo').onclick=()=>{S.check={tune:TC.TUNES.find(t=>t.id===ct.value),how:$('#ckHow').value};startRec()};
+  $('#ckSave').onclick=()=>{const c=S.lastCheck;if(c)give(wav(c.audio.x,c.audio.sr),`check_${c.tune.id}_${c.how}_${c.right}of${c.tune.k.length}.wav`)};
+  $('#ckClear').onclick=()=>{store.set('tc.checks',[]);ckHist()};
   $('#title').onchange=e=>{S.cur.title=e.target.value.trim();saveCur()};
   $('#play').onclick=()=>playTune();$('#playRec').onclick=playRec;
   $$('[data-op]').forEach(b=>b.onclick=()=>{if(S.sel<0)return;edit(s=>{const n=s.ev[S.sel];if(n)delete n.un;OPS[b.dataset.op](s)})});
@@ -1032,7 +1147,8 @@ function init(){
   $('#cSlower').onclick=()=>bump(-5);$('#cFaster').onclick=()=>bump(5);
   const wc=$('#wordsChk');wc.checked=SET.words;wc.onchange=async()=>{if(wc.checked&&!SET.wordsOk&&!(await askWords())){wc.checked=false;return}SET.words=wc.checked;saveSet()};
   // the words on the result page
-  $('#wordsListen').onclick=listenWords;
+  $('#wordsListen').onclick=()=>listenWords();
+  $('#wordsRec').onclick=async()=>{if(!SET.wordsOk&&!(await askWords()))return;stopPlay();S.wordsTake=true;startRec()};
   $('#wordsApply').onclick=()=>{const t=$('#wordsText').value.trim();edit(s=>{if(t){TC.setLyricsInOrder(s.ev,t)}});S.cur.wordsTyped=t||null;S.cur.words=null;saveCur();render()};
   $('#wordsClear').onclick=()=>{edit(s=>{for(const n of s.ev){delete n.ly;delete n.syl;delete n.mel}});S.cur.words=null;S.cur.wordsTyped=null;$('#wordsText').value='';saveCur();render()};
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
@@ -1043,7 +1159,7 @@ function init(){
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 // for tests
-window.TCAPP={S,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
+window.TCAPP={S,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
 </script>
 </body>
