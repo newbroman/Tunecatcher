@@ -226,73 +226,117 @@ const median=a=>{if(!a.length)return NaN;const s=Float64Array.from(a).sort();con
 const pct=(a,p)=>{const s=Float64Array.from(a).sort();return s[Math.min(s.length-1,Math.floor(p*s.length))]};
 const hz2m=f=>69+12*Math.log2(f/440);
 
-/* ---------- notes: voiced frames → pitched segments ---------- */
-function segment(tr){
-  const {f,conf,rms}=tr,n=f.length;if(!n)return {notes:[],offset:0};
+/* ---------- notes: frames → notes with a hidden-Markov note tracker ----------
+   Each frame is either silence or one semitone. A Viterbi path pays for frames whose pitch is far from its semitone and for
+   every change of note, so a held pitch with a slide into it comes out as one note, and a wobble does not become three.
+   Repeated notes on one pitch are split where the loudness dips. A second pass leans towards the notes of the key. */
+function voicing(tr){
+  const {f,conf,rms}=tr,n=f.length;
   const peak=pct(rms,0.98)||1e-3,floor=pct(rms,0.05);
-  const gate=Math.max(Math.min(floor*2.5,peak*0.25),peak*0.06);
-  const m=new Float32Array(n).fill(NaN);
-  for(let i=0;i<n;i++)if(conf[i]>0.55&&rms[i]>gate&&f[i]>FMIN&&f[i]<FMAX)m[i]=hz2m(f[i]);
-  // octave slips: a frame an octave away from both neighbourhoods is folded back
-  for(let i=2;i<n-2;i++){if(isNaN(m[i]))continue;const nb=[m[i-2],m[i-1],m[i+1],m[i+2]].filter(v=>!isNaN(v));if(nb.length<2)continue;const md=median(nb);
-    const dd=m[i]-md;if(Math.abs(Math.abs(dd)-12)<1.5)m[i]-=12*Math.sign(dd)}
-  // isolated voiced blips out
-  for(let i=1;i<n-1;i++)if(!isNaN(m[i])&&isNaN(m[i-1])&&isNaN(m[i+1]))m[i]=NaN;
-  // median smoothing over voiced runs
-  const sm=new Float32Array(n).fill(NaN);
-  for(let i=0;i<n;i++){if(isNaN(m[i]))continue;const w=[];for(let k=-2;k<=2;k++){const v=m[i+k];if(i+k>=0&&i+k<n&&!isNaN(v))w.push(v)}sm[i]=median(w)}
-  // smoothed loudness, for re-articulated notes ("hm-hm" on one pitch)
-  const env=new Float32Array(n);for(let i=0;i<n;i++){let s=0,c=0;for(let k=-1;k<=1;k++)if(i+k>=0&&i+k<n){s+=rms[i+k];c++}env[i]=s/c}
-  const dip=new Uint8Array(n);
+  const g0=Math.max(Math.min(floor*2,peak*0.15),peak*0.03),g1=Math.max(g0*2.5,peak*0.12);
+  const m=new Float32Array(n).fill(NaN),v=new Float32Array(n);
+  for(let i=0;i<n;i++){if(!(f[i]>FMIN&&f[i]<FMAX))continue;
+    const vc=Math.max(0,Math.min(1,(conf[i]-0.3)/0.4)),vr=Math.max(0,Math.min(1,(rms[i]-g0)/(g1-g0)));
+    v[i]=vc*vr;if(v[i]>0.05)m[i]=hz2m(f[i])}
+  // octave slips inside a run: fold a frame an octave away from its neighbourhood
+  for(let i=0;i<n;i++){if(isNaN(m[i]))continue;const nb=[];for(let k=-6;k<=6;k++)if(k&&i+k>=0&&i+k<n&&!isNaN(m[i+k]))nb.push(m[i+k]);if(nb.length<4)continue;
+    const md=median(nb),dd=m[i]-md;if(Math.abs(Math.abs(dd)-12)<2)m[i]-=12*Math.sign(dd)}
+  // light median smoothing
+  const sm=new Float32Array(n).fill(NaN);for(let i=0;i<n;i++){if(isNaN(m[i]))continue;const w=[];for(let k=-2;k<=2;k++)if(i+k>=0&&i+k<n&&!isNaN(m[i+k]))w.push(m[i+k]);sm[i]=median(w)}
+  return {m:sm,v,rms};
+}
+function tuningOf(m,v){let sx=0,sy=0;for(let i=0;i<m.length;i++){if(isNaN(m[i])||v[i]<0.4)continue;const a=2*Math.PI*(m[i]-Math.round(m[i]));sx+=Math.cos(a)*v[i];sy+=Math.sin(a)*v[i]}
+  return (sx||sy)?Math.atan2(sy,sx)/(2*Math.PI):0}
+const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
+function viterbi(m,v,off,lo,hi,scale){
+  const n=m.length,N=hi-lo+1,S=N+1;   // state 0 silence, 1..N pitches lo..hi
+  const {SIG,CAP,P_CHANGE,P_ON,P_OFF,P_SCALE}=PARAMS;
+  const back=new Int16Array(n*S);let prev=new Float64Array(S),cur=new Float64Array(S);
+  const em=(i,s)=>{const vi=v[i];if(s===0)return 4*vi;
+    let c=(1-vi)*2.5;if(!isNaN(m[i])){const d=m[i]-off-(lo+s-1);c+=vi*Math.min(CAP,d*d/(2*SIG*SIG))}else c+=vi*CAP;
+    if(scale&&!scale[((lo+s-1)%12+12)%12])c+=P_SCALE*vi;return c};
+  for(let s=0;s<S;s++)prev[s]=em(0,s)+(s?P_ON:0);
+  for(let i=1;i<n;i++){
+    let bp=1,bv=Infinity;for(let s=1;s<S;s++)if(prev[s]<bv){bv=prev[s];bp=s}
+    for(let s=0;s<S;s++){let best=prev[s],arg=s;
+      if(s===0){if(bv+P_OFF<best){best=bv+P_OFF;arg=bp}}
+      else{if(prev[0]+P_ON<best){best=prev[0]+P_ON;arg=0}
+        // the best other pitch (if the overall best is this one, look for the second best)
+        let ov=bv,op=bp;if(bp===s){ov=Infinity;for(let t=1;t<S;t++)if(t!==s&&prev[t]<ov){ov=prev[t];op=t}}
+        if(ov+P_CHANGE<best){best=ov+P_CHANGE;arg=op}}
+      cur[s]=best+em(i,s);back[i*S+s]=arg}
+    [prev,cur]=[cur,prev]}
+  let s=0,bv=Infinity;for(let t=0;t<S;t++)if(prev[t]<bv){bv=prev[t];s=t}
+  const path=new Int16Array(n);for(let i=n-1;i>=0;i--){path[i]=s;s=back[i*S+s]}
+  return Array.from(path,q=>q?lo+q-1:-1);
+}
+function dips(env,m){const n=env.length,dip=new Uint8Array(n);
   for(let i=3;i<n-3;i++){let a=0,b=0;for(let k=2;k<=12;k++){if(i-k>=0)a=Math.max(a,env[i-k]);if(i+k<n)b=Math.max(b,env[i+k])}
-    let lo=true;for(let k=-2;k<=2;k++)if(env[i+k]<env[i])lo=false;if(isNaN(sm[i-3])&&isNaN(sm[i+3]))lo=false;
+    let lo=true;for(let k=-2;k<=2;k++)if(env[i+k]<env[i])lo=false;
     if(lo&&env[i]<0.6*Math.min(a,b))dip[i]=1}
-  // walk
-  const raw=[];let cur=null;
-  const close=end=>{if(cur){cur.e=end;raw.push(cur);cur=null}};
-  for(let i=0;i<n;i++){
-    const v=sm[i];
-    if(isNaN(v)){close(i);continue}
-    if(!cur){cur={s:i,fr:[v],by:'gap'};continue}
-    if(dip[i]){close(i);cur={s:i,fr:[v],by:'dip'};continue}
-    const ref=median(cur.fr.slice(-10));
-    if(Math.abs(v-ref)>0.7){
-      // a change only if it holds for 3 frames
-      let hold=0;for(let k=0;k<3&&i+k<n;k++)if(!isNaN(sm[i+k])&&Math.abs(sm[i+k]-ref)>0.7)hold++;
-      if(hold===3){close(i);cur={s:i,fr:[v],by:'pitch'};continue}
-    }
-    cur.fr.push(v);
-  }
-  close(n);
-  // pitch of each note: the median of its middle, past the attack and before the release
-  let notes=[];
-  for(const r of raw){const len=r.e-r.s;if(len<7)continue;const a=Math.floor(len*0.2),b=Math.ceil(len*0.85);
-    const core=r.fr.slice(a,Math.max(a+1,b));let loud=0;for(let i=r.s;i<r.e;i++)loud=Math.max(loud,rms[i]);
-    notes.push({t:r.s/FPS,d:len/FPS,m:median(core),v:loud,by:r.by})}
-  // a short glide between two notes is not a note of its own
-  notes=notes.filter((nt,i)=>{if(nt.d>=0.12)return true;const p=notes[i-1],q=notes[i+1];if(!p||!q)return true;
-    const between=(nt.m-p.m)*(nt.m-q.m)<0;const touching=nt.t-(p.t+p.d)<0.03&&q.t-(nt.t+nt.d)<0.03;return !(between&&touching)});
-  // tuning: hummers are rarely at A=440; the duration-weighted circular mean of the fractional part
-  let sx=0,sy=0;for(const nt of notes){const a=2*Math.PI*(nt.m-Math.round(nt.m));sx+=Math.cos(a)*nt.d;sy+=Math.sin(a)*nt.d}
-  const offset=notes.length?Math.atan2(sy,sx)/(2*Math.PI):0;
-  for(const nt of notes){nt.k=Math.round(nt.m-offset)}
-  // merge neighbours that ended up on the same key with no gap and no dip between them
-  const out=[];for(const nt of notes){const p=out[out.length-1];
-    if(p&&p.k===nt.k&&nt.by==='pitch'&&nt.t-(p.t+p.d)<0.02){p.d=nt.t+nt.d-p.t;p.v=Math.max(p.v,nt.v)}else out.push(nt)}
-  const vmax=Math.max(1e-6,...out.map(o=>o.v));out.forEach(o=>o.vel=Math.round(50+60*Math.min(1,o.v/vmax)));
-  return {notes:out,offset};
+  return dip}
+// syllables: bursts of loudness, split at the valleys between them (each "da" or "mm" of a hum)
+function syllables(env,gate,m){const n=env.length,cuts=[];let i=0;
+  while(i<n){if(env[i]<gate){i++;continue}let j=i;while(j<n&&env[j]>=gate)j++;
+    // valleys inside the burst
+    let a=i;for(let k=i+4;k<j-4;k++){let lm=true;for(let q=-2;q<=2;q++)if(env[k+q]<env[k])lm=false;if(!lm)continue;
+      let L=0,R=0;for(let q=1;q<=15;q++){if(k-q>=a)L=Math.max(L,env[k-q]);if(k+q<j)R=Math.max(R,env[k+q])}
+      const r=env[k]/Math.min(L,R);if(r>=PARAMS.VALLEY)continue;
+      if(r>=PARAMS.DEEP&&m){const pa=[],pb=[];for(let q=1;q<=12;q++){if(!isNaN(m[k-q]))pa.push(m[k-q]);if(!isNaN(m[k+q]))pb.push(m[k+q])}
+        if(pa.length<3||pb.length<3||Math.abs(median(pa)-median(pb))<0.7)continue}
+      cuts.push([a,k]);a=k;k+=4}
+    cuts.push([a,j]);i=j}
+  return cuts}
+function runsToNotes(path,m,v,rms,syl){
+  const notes=[];
+  for(let [a,b] of syl){while(a<b&&!(v[a]>0.3))a++;while(b>a&&!(v[b-1]>0.3))b--;if(b-a<PARAMS.MIN)continue;
+    // runs of the note path inside the syllable
+    const runs=[];for(let i=a;i<b;){const k=path[i];let j=i;while(j<b&&path[j]===k)j++;if(k>=0)runs.push({a:i,b:j,k});i=j}
+    // short runs are slides: they go to their longer neighbour
+    let changed=true;while(changed&&runs.length>1){changed=false;let si=-1,sl=1e9;runs.forEach((r,i)=>{const l=r.b-r.a;if(l<PARAMS.SLIDE&&l<sl){sl=l;si=i}});
+      if(si>=0){const r=runs[si],L=runs[si-1],R=runs[si+1];const t=!L?R:!R?L:(L.b-L.a>=R.b-R.a?L:R);if(t===L)L.b=r.b;else R.a=r.a;runs.splice(si,1);changed=true}
+      // neighbours on the same note join
+      for(let i=1;i<runs.length;i++)if(runs[i].k===runs[i-1].k){runs[i-1].b=runs[i].b;runs.splice(i,1);i--;changed=true}}
+    if(!runs.length){const fr=[];for(let i=a;i<b;i++)if(!isNaN(m[i])&&v[i]>0.1)fr.push(m[i]);if(fr.length<4)continue;runs.push({a,b,k:null,mm:median(fr)})}
+    // the syllable's note(s) span the whole syllable
+    runs[0].a=a;runs[runs.length-1].b=b;
+    for(const r of runs){let loud=0;const fr=[];for(let i=r.a;i<r.b;i++){loud=Math.max(loud,rms[i]);if(!isNaN(m[i]))fr.push(m[i])}
+      const mm=r.mm!=null?r.mm:(fr.length?median(fr):r.k);notes.push({t:r.a/FPS,d:(r.b-r.a)/FPS,k:r.k,m:mm,v:loud})}}
+  return notes}
+function fillK(notes,off){for(const nt of notes)if(nt.k==null)nt.k=Math.round(nt.m-off);return notes}
+function segment(tr){
+  const n=tr.f.length;if(!n)return {notes:[],offset:0};
+  const {m,v,rms}=voicing(tr);
+  const vals=[];for(let i=0;i<n;i++)if(!isNaN(m[i])&&v[i]>0.3)vals.push(m[i]);if(vals.length<10)return {notes:[],offset:0};
+  const off=tuningOf(m,v);const lo=Math.floor(pct(vals,0.01)-off)-2,hi=Math.ceil(pct(vals,0.99)-off)+2;
+  const env=new Float32Array(n);for(let i=0;i<n;i++){let s=0,c=0;for(let k=-1;k<=1;k++)if(i+k>=0&&i+k<n){s+=rms[i+k];c++}env[i]=s/c}
+  const peak=pct(rms,0.98)||1e-3,floor=pct(rms,0.05);const gate=Math.max(peak*PARAMS.GATE,floor*2.5);const syl=syllables(env,gate,m);
+  let notes=fillK(runsToNotes(viterbi(m,v,off,lo,hi,null),m,v,rms,syl),off);
+  // a short note an octave away from both neighbours is an octave slip
+  for(let i=0;i<notes.length;i++){const nt=notes[i];if(nt.d>0.25)continue;const nb=[notes[i-1],notes[i+1]].filter(Boolean);if(!nb.length)continue;
+    for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
+  // second pass: lean towards the key found in the first
+  if(notes.length>=4){const K=key(notes.map(x=>({k:x.k,s:0,e:Math.max(1,Math.round(x.d*8))})));
+    const sc=new Array(12).fill(false);const steps=K.mode==='major'?[0,2,4,5,7,9,11]:[0,2,3,5,7,8,10,11];for(const st of steps)sc[(K.pc+st)%12]=true;
+    const p2=viterbi(m,v,off,lo,hi,sc);const n2=fillK(runsToNotes(p2,m,v,rms,syl),off);
+    for(let i=0;i<n2.length;i++){const nt=n2[i];if(nt.d>0.25)continue;const nb=[n2[i-1],n2[i+1]].filter(Boolean);if(!nb.length)continue;
+      for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
+    notes=n2}
+  const vmax=Math.max(1e-6,...notes.map(o=>o.v));notes.forEach(o=>{o.vel=Math.round(50+60*Math.min(1,o.v/vmax));o.by='hmm'});
+  return {notes,offset:off};
 }
 
 /* ---------- tempo: the beat that makes the gaps between note starts simplest ---------- */
 function tempo(notes){
   const on=notes.map(n=>n.t);if(on.length<3)return {beat:0.6,conf:0};
   const iois=[];for(let i=1;i<on.length;i++){iois.push([on[i]-on[i-1],1]);if(i>1)iois.push([on[i]-on[i-2],0.5])}
+  const gaps=[];for(let i=1;i<on.length;i++)gaps.push(on[i]-on[i-1]);const mg=median(gaps);
   let best=null;
   for(let p=0.28;p<=1.3;p*=1.002){
     let cost=0,wt=0;for(const [d,w] of iois){const u=d/p*4;const r=Math.max(1,Math.round(u));const e=(u-r)/Math.max(1,Math.sqrt(r)/1.5);
-      cost+=w*(e*e+(r%2&&r>1?0.03:0)+(r===1?0.02:0)+0.012*Math.pow(Math.log2(r/4),2));wt+=w}
+      cost+=w*(e*e+(r%2&&r>1?PARAMS.ODD:0)+(r===1?0.02:0)+PARAMS.QW*Math.pow(Math.log2(r/4),2));wt+=w}
     cost/=wt;
-    const s=cost+Math.pow(Math.log2(p/0.6),2)*0.02;   // ~100 bpm is likeliest
+    const out=p<0.29?Math.log2(0.29/p):p>1?Math.log2(p):0;const s=cost+out*out*0.3+Math.pow(Math.log2(p/0.6),2)*PARAMS.PRIOR+Math.pow(Math.log2(p/mg),2)*PARAMS.MEDW;   // a flat band from 60 to 205 bpm, gently centred on 100
     if(!best||s<best.s)best={s,p,cost}}
   return {beat:best.p,conf:Math.max(0,1-best.cost*8)};
 }
@@ -300,18 +344,20 @@ function tempo(notes){
 /* ---------- quantise to sixteenths ---------- */
 function quantise(notes,beat,metre){
   if(!notes.length)return {ev:[],len:0};
-  let g=beat/4;const q=[];let pos=0;
+  // the grid: sixteenths, or eighths when sixteenths would be quicker than a hummer can place them
+  const c=beat/4<PARAMS.FINE?2:1;
+  let g=beat/4*c;const q=[];let pos=0;
   for(let i=0;i<notes.length;i++){const n=notes[i];
     if(i){const ioi=n.t-notes[i-1].t,u=ioi/g;let r=Math.max(1,Math.round(u));
       // an odd count of sixteenths of 3 or more is often a sloppy even one
-      if(r>=3&&r%2){const lo=r-1,hi=r+1,alt=Math.abs(u-lo)<Math.abs(u-hi)?lo:hi;if(Math.abs(u-alt)<0.62*Math.max(1,Math.sqrt(r/4)))r=alt}
-      pos+=r;
-      if(Math.abs(u-r)<0.35*Math.max(1,Math.sqrt(r/4))&&r<=16)g=g*0.8+0.2*(ioi/r)}   // follow a drifting tempo
+      if(c===1&&r>=3&&r%2){const lo=r-1,hi=r+1,alt=Math.abs(u-lo)<Math.abs(u-hi)?lo:hi;if(Math.abs(u-alt)<0.62*Math.max(1,Math.sqrt(r/4)))r=alt}
+      pos+=r*c;
+      if(Math.abs(u-r)<0.35*Math.max(1,Math.sqrt(r*c/4))&&r*c<=16)g=g*0.8+0.2*(ioi/r)}   // follow a drifting tempo
     q.push({k:n.k,vel:n.vel,s:pos,dur:n.d,g})}
-  for(let i=0;i<q.length;i++){const n=q[i],nx=q[i+1];const held=Math.max(1,Math.round(n.dur/n.g));
+  for(let i=0;i<q.length;i++){const n=q[i],nx=q[i+1];const held=Math.max(1,Math.round(n.dur/n.g))*c;
     if(!nx){let e=n.s+held;if(held>=3&&held%2)e++;n.e=e;continue}
     const gap=nx.s-(n.s+held);
-    n.e=gap>=2?n.s+held:nx.s}                 // a breath shorter than an eighth is legato
+    n.e=gap>=PARAMS.REST?n.s+held:nx.s}       // a gap shorter than a beat is a breath or a detached note, not a rest
   for(let i=0;i<q.length;i++){const d=q[i].e-q[i].s,nx=q[i+1];if(d>=3&&d%2===1&&nx&&nx.s>q[i].e)q[i].e+=1}
   const pl=place(q,metre),ev=pl.ev,bestOff=pl.off,bestS=pl.score,M=METRES[metre];
   // the last note is often cut short by the end of the recording: hold it to the next beat
@@ -338,7 +384,7 @@ const METRES={
 function guessMetre(notes,beat){
   // 3/4 or 4/4: which bar length repeats the pattern of long notes better
   const r=quantise(notes,beat,'4/4');const L=r.len+48;const a=new Float32Array(L);
-  for(const n of r.ev)a[n.s]+=Math.min(12,n.e-n.s);
+  r.ev.forEach((n,i)=>{a[n.s]+=Math.min(12,n.e-n.s);const p=r.ev[i-1];if(p&&n.s-p.e>=4)a[n.s]+=6});   // a note after a rest starts a phrase
   const n=r.len||1;const R=lag=>{let s=0;for(let t=0;t+lag<L;t++)s+=a[t]*a[t+lag];let s2=0;for(let t=0;t+2*lag<L;t++)s2+=a[t]*a[t+2*lag];return s/Math.max(1,n-lag)+0.5*s2/Math.max(1,n-2*lag)};
   return R(12)>R(16)*1.05?'3/4':'4/4';
 }
@@ -490,7 +536,7 @@ function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);con
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,place,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,place,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
