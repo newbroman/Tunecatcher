@@ -134,6 +134,13 @@ dialog li{margin:.4em 0}
   <div class="spinner"></div><p id="workMsg">Catching the notes…</p>
 </section>
 
+ <section data-view="fail" class="work" hidden>
+  <p>No clear tune was found in that recording.</p>
+  <p class="tip">Hum a little louder, close to the phone, on “mm” or “da”.</p>
+  <div class="row"><button id="failAgain" class="primary">Try again</button><button id="failSave" class="secondary">Save the recording</button></div>
+  <button id="failHome" class="ghost">Back</button>
+</section>
+
 <section data-view="result" class="result" hidden>
   <input id="title" class="title" aria-label="Title" placeholder="Title">
   <p id="meta" class="meta"></p>
@@ -160,6 +167,7 @@ dialog li{margin:.4em 0}
       <button data-export="xml">MusicXML<small>for MuseScore, Sibelius, Dorico</small></button>
       <button data-export="abc">ABC text</button>
       <button data-export="print">Print or PDF</button>
+      <button id="wavBtn" data-export="wav">My humming<small>as a sound file (WAV)</small></button>
     </details>
     <button id="again" class="secondary">Hum another</button>
   </div>
@@ -575,14 +583,14 @@ async function analyse(x,sr,title){
   // normalise
   let pk=0;for(let i=0;i<y.length;i++)pk=Math.max(pk,Math.abs(y[i]));if(pk>0&&pk<0.5){const g=0.5/pk;y=y.map(v=>v*g)}
   const r=TC.transcribe(y);
-  if(!r.ok){toast('No clear tune was found. Hum a little louder, on “mm” or “da”, and try again.',5000);show('home');return}
+  if(!r.ok){S.failTitle=title;show('fail');return}
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
   S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false};S.undo=[];S.sel=-1;
   saveCur();openResult();
 }
 
 /* ---------- the result ---------- */
-function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;syncControls();render()}
+function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;syncControls();render()}
 function syncControls(){const s=S.cur.song;
   $('#keySel').value=`${s.K.fifths}|${s.K.mode}`;$('#metreSel').value=s.metre;$('#clefSel').value=s.clef;$('#bpm').textContent=Math.round(s.bpm);
   $('#undo').disabled=!S.undo.length}
@@ -653,7 +661,12 @@ const safe=t=>(t||'tune').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')||'
 async function give(blob,name){
   if(navigator.canShare&&window.File){const f=new File([blob],name,{type:blob.type});if(navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:name});return}catch(e){if(e.name==='AbortError')return}}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
+function wav(x,sr){const n=x.length,b=new DataView(new ArrayBuffer(44+n*2));const w=(o,t)=>{for(let i=0;i<t.length;i++)b.setUint8(o+i,t.charCodeAt(i))};
+  w(0,'RIFF');b.setUint32(4,36+n*2,true);w(8,'WAVEfmt ');b.setUint32(16,16,true);b.setUint16(20,1,true);b.setUint16(22,1,true);b.setUint32(24,sr,true);b.setUint32(28,sr*2,true);b.setUint16(32,2,true);b.setUint16(34,16,true);w(36,'data');b.setUint32(40,n*2,true);
+  for(let i=0;i<n;i++)b.setInt16(44+i*2,Math.max(-32767,Math.min(32767,Math.round(x[i]*32767))),true);return new Blob([b],{type:'audio/wav'})}
+function saveHum(title){if(!S.audio){toast('The recording is only kept until you leave this catch.');return}give(wav(S.audio.x,S.audio.sr),safe(title)+'.wav')}
 const EXPORTS={
+  wav:()=>saveHum(S.cur.title),
   midi:()=>give(new Blob([TC.toMIDI(S.cur.song)],{type:'audio/midi'}),safe(S.cur.title)+'.mid'),
   xml:()=>give(new Blob([TC.toMusicXML(S.cur.song,{title:S.cur.title})],{type:'application/vnd.recordare.musicxml+xml'}),safe(S.cur.title)+'.musicxml'),
   abc:()=>give(new Blob([TC.toABC(S.cur.song,{title:S.cur.title}).abc],{type:'text/plain'}),safe(S.cur.title)+'.abc'),
@@ -680,6 +693,7 @@ function init(){
   $('#half').onclick=()=>setTempo(S.cur.song.bpm/2);$('#double').onclick=()=>setTempo(S.cur.song.bpm*2);
   $('#trUp').onclick=()=>transposeAll(1);$('#trDown').onclick=()=>transposeAll(-1);
   $$('[data-export]').forEach(b=>b.onclick=()=>{$('#exportMenu').open=false;EXPORTS[b.dataset.export]()});
+  $('#failSave').onclick=()=>saveHum(S.failTitle||'humming');$('#failAgain').onclick=startRec;$('#failHome').onclick=()=>show('home');
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
   let rt=0;window.addEventListener('resize',()=>{if(S.view!=='result')return;clearTimeout(rt);rt=setTimeout(render,200)});
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#catch').disabled=true;$('#noMic').hidden=false}
