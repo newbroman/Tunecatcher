@@ -117,6 +117,17 @@ dialog li{margin:.4em 0}
 #wordsText{width:100%;margin-top:6px;background:var(--ink3);color:var(--text);border:0;border-radius:10px;padding:.6em .7em;font:inherit;resize:vertical}
 .row.left{justify-content:flex-start;margin:8px 0 2px}.row.left button{padding:.5em .85em;font-size:.88rem}
 @media print{.wordsbox{display:none!important}}
+
+#paper .tc-unsure{fill:#d07a00;stroke:#d07a00}
+#phraseList{list-style:none;margin:6px 0 0;padding:0}
+#phraseList li{display:flex;align-items:center;gap:6px;padding:5px 0;border-top:1px solid var(--ink3);font-size:.9rem}
+#phraseList li:first-child{border-top:0}
+#phraseList .ptxt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#phraseList .ptxt small{color:var(--dim);margin-left:.5em}
+#phraseList button{padding:.4em .7em;font-size:.85rem;flex:none}
+.hint.left{text-align:left;margin:8px 0 0}
+.recphrase{color:var(--amber);font-family:var(--serif);font-size:1.15rem;margin:0 0 6px}
+@media print{#phraseBox{display:none!important}}
 </style>
 </head>
 <body>
@@ -143,6 +154,7 @@ dialog li{margin:.4em 0}
 </section>
 
 <section data-view="rec" class="rec" hidden>
+  <p id="recPhrase" class="recphrase" hidden></p>
   <div id="recLevel" class="level"></div>
   <div id="recNote" class="bignote">·</div>
   <div id="beatDots" class="beats" hidden></div>
@@ -172,10 +184,15 @@ dialog li{margin:.4em 0}
     <button data-op="down" aria-label="Down a semitone">♭ −</button><button data-op="up" aria-label="Up a semitone">♯ +</button>
     <button data-op="odown" aria-label="Down an octave">8vb</button><button data-op="oup" aria-label="Up an octave">8va</button>
     <button data-op="shorter" aria-label="Shorter">shorter</button><button data-op="longer" aria-label="Longer">longer</button>
-    <button data-op="del" aria-label="Delete note">delete</button><button id="done" class="ghost" aria-label="Done">✓</button>
+    <button data-op="del" aria-label="Delete note">delete</button><button data-op="pb" aria-label="A phrase starts or stops starting here">phrase</button><button id="done" class="ghost" aria-label="Done">✓</button>
   </div>
   <div class="row play"><button id="play" class="primary">▶ Play</button><button id="playRec" class="secondary">▶ My humming</button><button id="undo" class="ghost" disabled>↶ Undo</button></div>
   <p class="hint">Tap a note to fix it.</p>
+  <div id="phraseBox" class="wordsbox">
+    <div class="wordshead"><b>Phrases</b><span>Sing a phrase again to make it surer</span></div>
+    <ul id="phraseList"></ul>
+    <p class="hint left">Orange notes are ones your takes disagreed on. To split a phrase, tap the note that starts the new one, then “phrase”.</p>
+  </div>
   <div id="wordsBox" class="wordsbox">
     <div class="wordshead"><b>Words</b><span id="wordsStatus"></span></div>
     <textarea id="wordsText" rows="3" placeholder="Type the words here, or tap “Listen for the words”."></textarea>
@@ -209,6 +226,7 @@ dialog li{margin:.4em 0}
     <li>Leave a small gap between repeated notes, so they come out as two.</li>
     <li>Keep a steady beat. Tunecatcher works out the tempo, the time and the key.</li>
     <li>Tap ■ Done. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
+    <li>Sing the whole song once. Then, under <i>Phrases</i>, sing any phrase again, as many times as you like, in any key: Tunecatcher lines the takes up and keeps what most of them agree on.</li>
     <li>Wrong time or a rhythm that looks twice too fast or slow? Change Time, or use ½ and ×2.</li>
   </ol>
   <p>Your humming never leaves the phone. Catches are kept on this device only.</p>
@@ -622,6 +640,75 @@ function setLyricsInOrder(ev,text){clearLyrics(ev);const words=text.split(/\s+/)
 const countSyllables=words=>sylsOf(words).length;
 const lyricsText=ev=>ev.filter(n=>n.ly!=null).map((n,i,a)=>n.ly+(n.syl==='begin'||n.syl==='middle'?'-':' ')).join('').replace(/-\s*/g,'').trim();
 
+/* ---------- phrases and several takes ----------
+   A phrase starts at a note flagged pb. The first take of a phrase is what the whole-song catch found; singing the phrase
+   again adds a take. Takes are lined up note by note (any key, any speed), and each note is what most takes agree on. */
+function ensurePhrases(ev){if(!ev.length)return ev;if(!ev.some(n=>n.pb)){ev.forEach((n,i)=>{if(i===0||ev[i-1].e<n.s)n.pb=true})}ev[0].pb=true;return ev}
+function phrasesOf(ev){const out=[];ev.forEach((n,i)=>{if(i===0||n.pb)out.push({i0:i,i1:i+1});else out[out.length-1].i1=i+1});return out}
+function phrasesFromWords(ev){for(let i=1;i<ev.length;i++)if(ev[i-1].ly&&/[.!?;]$/.test(ev[i-1].ly)&&ev[i].ly!=null&&!ev[i].pb&&!ev.some(n=>n.takes))ev[i].pb=true;return ev}
+const modeOf=(a,prefer)=>{const c=new Map();for(const v of a)c.set(v,(c.get(v)||0)+1);let best=null,bn=0;for(const [v,n] of c)if(n>bn||(n===bn&&v===prefer)){best=v;bn=n}return [best,bn]};
+function alignKeys(ref,take,tr,extra){const N=ref.length,M=take.length,GAP=1;const D=Array.from({length:N+1},()=>new Float64Array(M+1)),B=Array.from({length:N+1},()=>new Int8Array(M+1));
+  for(let i=1;i<=N;i++){D[i][0]=i*GAP;B[i][0]=2}for(let j=1;j<=M;j++){D[0][j]=j*GAP;B[0][j]=3}
+  for(let i=1;i<=N;i++)for(let j=1;j<=M;j++){const m=D[i-1][j-1]+Math.min(3,Math.abs(take[j-1]+tr-ref[i-1]))*0.7+(extra?extra(i-1,j-1):0),a=D[i-1][j]+GAP,b=D[i][j-1]+GAP;
+    if(m<=a&&m<=b){D[i][j]=m;B[i][j]=1}else if(a<=b){D[i][j]=a;B[i][j]=2}else{D[i][j]=b;B[i][j]=3}}
+  const ops=[];let i=N,j=M;while(i>0||j>0){const b=B[i][j];if(b===1){ops.push([i-1,j-1]);i--;j--}else if(b===2){ops.push([i-1,-1]);i--}else{ops.push([-1,j-1]);j--}}
+  return {cost:D[N][M],ops:ops.reverse()}}
+// takes: [{q:true,n:[{k,p,d,t}]}, {n:[{k,t,d}]}, …]; g: seconds per sixteenth; step: grid step in sixteenths
+function consensus(takes,g,step,scale){
+  const n=takes.length;let cols=takes[0].n.map(x=>{const e=new Array(n).fill(null);e[0]={k:x.k,p:x.p,d:x.d,t:x.t};return e});
+  for(let ti=1;ti<n;ti++){const raw=takes[ti].n;if(!raw.length)continue;
+    const refK=cols.map(c=>modeOf(c.filter(Boolean).map(e=>e.k))[0]),refP=cols.map(c=>median(c.filter(Boolean).map(e=>e.p)));
+    const tk=raw.map(x=>x.k);let best=null;for(let tr=-12;tr<=12;tr++){const a=alignKeys(refK,tk,tr);const c=a.cost+0.03*Math.abs(tr);if(!best||c<best.c)best={c,tr,ops:a.ops}}
+    // the take's clock → the phrase's sixteenths, by a straight line through the matched notes
+    const line=pr=>{let a=1/g,b;if(pr.length>=2){const mx=pr.reduce((q,v)=>q+v[0],0)/pr.length,my=pr.reduce((q,v)=>q+v[1],0)/pr.length;let sxy=0,sxx=0;for(const [x,y] of pr){sxy+=(x-mx)*(y-my);sxx+=(x-mx)**2}
+        const a2=sxx>0?sxy/sxx:a;if(a2>0.5/g&&a2<2/g)a=a2;b=my-a*mx}
+      else b=pr.length?pr[0][1]-a*pr[0][0]:(refP[0]||0)-a*raw[0].t;return [a,b]};
+    const fit=ops=>{let pr=ops.filter(o=>o[0]>=0&&o[1]>=0).map(o=>[raw[o[1]].t,refP[o[0]]]);let [a,b]=line(pr);
+      // one mismatched pair must not tilt the line: leave out the worst if it is well off, and fit again
+      if(pr.length>=4){let wi=-1,wr=1.5;pr.forEach(([x,y],i)=>{const r=Math.abs(a*x+b-y);if(r>wr){wr=r;wi=i}});if(wi>=0){pr.splice(wi,1);[a,b]=line(pr)}}
+      return [a,b]};
+    let [a,b]=fit(best.ops);
+    // again, now that the speed is roughly known: notes should also line up in time (this settles which of two equal notes is which)
+    for(let it=0;it<2;it++){const a0=a,b0=b;best.ops=alignKeys(refK,tk,best.tr,(i,j)=>Math.min(2,Math.abs(a0*raw[j].t+b0-refP[i])/4)*0.6).ops;[a,b]=fit(best.ops)}
+    // the take's own tuning: how far its sung pitches sit from the notes they matched (a singer between two keys is read in the phrase's key)
+    const dl=best.ops.filter(o=>o[0]>=0&&o[1]>=0&&raw[o[1]].m!=null).map(o=>refK[o[0]]-raw[o[1]].m).filter(d=>Math.abs(d-best.tr)<1.5);
+    const trc=dl.length>=2?median(dl):best.tr;
+    const out=[];for(const [ci,ri] of best.ops){const ent=ri>=0?{k:raw[ri].m!=null?Math.round(raw[ri].m+trc):raw[ri].k+best.tr,p:a*raw[ri].t+b,d:a*raw[ri].d}:null;
+      if(ci>=0){cols[ci][ti]=ent;out.push(cols[ci])}else{const e=new Array(n).fill(null);e[ti]=ent;out.push(e)}}
+    cols=out}
+  const notes=[];
+  const inKey=k=>!scale||scale[((k%12)+12)%12];
+  let f0=cols.findIndex(c=>c[n-1]),f1=cols.length-1;while(f1>=0&&!cols[f1][n-1])f1--;
+  for(let ci=0;ci<cols.length;ci++){const c=cols[ci],have=c.filter(Boolean),last=c[n-1];
+    // a note only half the takes have: kept when the newest take has it and it is more than a passing slide,
+    // or when it lies before or after everything the newest take covers (that take started late or stopped early)
+    const edge=n>1&&(f0<0||ci<f0||ci>f1);
+    if(!(have.length*2>n||(have.length*2===n&&((last&&last.d>=1.5*step&&inKey(last.k))||edge))))continue;
+    // the pitch most takes sang; on a tie, the one in the key, then the newest
+    const ks=have.map(e=>e.k);let [k,kn]=modeOf(ks,last?last.k:null);if(kn*2<=n&&!inKey(k)){const alt=ks.filter(inKey);if(alt.length)k=modeOf(alt,last?last.k:null)[0]}
+    const q=c[0];
+    const pv=n<=2&&q?q.p:median(have.map(e=>e.p)),dv=n<=2&&q?q.d:median(have.map(e=>e.d));
+    notes.push({k,p:Math.round(pv/step)*step,d:Math.max(step,Math.round(dv/step)*step),un:n>1&&(kn*2<=n||have.length*2<=n),t:q?q.t:undefined})}
+  for(let i=1;i<notes.length;i++)if(notes[i].p<=notes[i-1].p)notes[i].p=notes[i-1].p+step;
+  notes.forEach((x,i)=>{const nx=notes[i+1];if(nx){const gap=nx.p-(x.p+x.d);x.d=gap>=PARAMS.REST?x.d:nx.p-x.p}});
+  // times for the words: from the first take where known, else by position
+  const ref=notes.find(x=>x.t!=null);for(const x of notes)if(x.t==null&&ref)x.t=ref.t+(x.p-ref.p)*g;
+  return notes}
+function addTake(song,pi,raw){
+  const ev=song.ev,P=phrasesOf(ev)[pi];if(!P||!raw.length)return false;const cur=ev.slice(P.i0,P.i1),head=cur[0];
+  const g=60/song.bpm/4,step=g<PARAMS.FINE?2:1,origin=head.s-(head.p0||0);
+  const takes=head.takes?head.takes.slice():[{q:true,n:cur.map(x=>({k:x.k,p:x.s-origin,d:x.e-x.s,t:x.t}))}];
+  takes.push({n:raw.map(x=>({k:x.k,m:x.m==null?undefined:+x.m.toFixed(2),t:+x.t.toFixed(3),d:+x.d.toFixed(3)}))});while(takes.length>6)takes.splice(1,1);
+  let scale=null;if(song.K){scale=new Array(12).fill(false);for(const st of (song.K.mode==='major'?[0,2,4,5,7,9,11]:[0,2,3,5,7,8,10,11]))scale[(song.K.pc+st)%12]=true}
+  const con=consensus(takes,g,step,scale);if(!con.length)return false;
+  const fresh=con.map(x=>{const o={k:x.k,vel:90,s:origin+x.p,e:origin+x.p+x.d};if(x.t!=null)o.t=x.t;if(x.un)o.un=true;return o});
+  fresh[0].pb=true;fresh[0].takes=takes;fresh[0].p0=con[0].p;
+  // keep clear of the phrases on either side
+  const prev=ev[P.i0-1];if(prev&&fresh[0].s<prev.e){const sh=prev.e-fresh[0].s;for(const x of fresh){x.s+=sh;x.e+=sh}fresh[0].p0-=0}
+  const rest=ev.slice(P.i1);const end=fresh[fresh.length-1].e;
+  if(rest.length&&rest[0].s<end){const bt=METRES[song.metre].beat,sh=Math.ceil((end-rest[0].s)/bt)*bt;for(const x of rest){x.s+=sh;x.e+=sh}}
+  song.ev=ev.slice(0,P.i0).concat(fresh,rest);return true}
+
 /* ---------- the whole way: samples → song ---------- */
 function transcribe(x,opt){
   opt=opt||{};
@@ -630,6 +717,7 @@ function transcribe(x,opt){
   const tp=opt.bpm?{beat:60/opt.bpm,conf:1}:tempo(notes);
   const metre=opt.metre||guessMetre(notes,tp.beat);
   const q=opt.grid?quantiseGrid(notes,tp.beat,metre,opt.grid.t0,opt.grid.lat):quantise(notes,tp.beat,metre);
+  ensurePhrases(q.ev);
   const K=opt.key||key(q.ev);
   const med=median(q.ev.map(n=>n.k));
   const clef=opt.clef||(med<55?'bass':'treble');
@@ -641,7 +729,7 @@ function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);con
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,PARAMS,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
@@ -682,15 +770,17 @@ async function startRec(){
   try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
   catch(e){toast('The microphone could not be opened. Allow it for this site, or open a recording instead.',5000);return}
   const ctx=ac();const src=ctx.createMediaStreamSource(stream);
-  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0,capStart=Infinity;
+  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0,capStart=Infinity,skipUntil=0;
+  const rt=S.retake;if(rt){const k=S.cur.song.ev[rt.i0].k;voice(ctx,k,ctx.currentTime+0.05,0.5,90,ctx.destination);skipUntil=ctx.currentTime+0.85}   // the phrase's first note, to start from
   const an=ctx.createAnalyser();an.fftSize=4096;src.connect(an);
-  proc.onaudioprocess=e=>{const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;
+  proc.onaudioprocess=e=>{if(ctx.currentTime<skipUntil)return;const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;
     // when the first sample was captured, in the audio clock (the earliest estimate is the least delayed)
     capStart=Math.min(capStart,ctx.currentTime-n/ctx.sampleRate);
     if(n/ctx.sampleRate>MAXREC)stopRec()};
   const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
   S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:performance.now(),trail:[],get n(){return n},get capStart(){return capStart}};
-  if(SET.click){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
+  $('#recPhrase').hidden=!rt;if(rt)$('#recPhrase').textContent='Phrase '+(rt.pi+1)+': '+rt.text;
+  if(SET.click&&!rt){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
     S.rec.click.out.connect(ctx.destination);scheduleClicks();S.rec.click.timer=setInterval(scheduleClicks,40);
     $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
   else $('#beatDots').hidden=true;
@@ -705,11 +795,13 @@ function endClicks(r){if(r&&r.click){clearInterval(r.click.timer);try{r.click.ou
 function stopRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);
   try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}
   const len=r.chunks.reduce((s,c)=>s+c.length,0);const x=new Float32Array(len);let o=0;for(const c of r.chunks){x.set(c,o);o+=c.length}
+  const rt=S.retake;S.retake=null;
+  if(rt){if(len<r.sr*0.4){toast('That was too short.');show('result');return}analyseRetake(x,r.sr,rt);return}
   if(len<r.sr*1){toast('That was too short to catch anything.');show('home');return}
   const opt={};if(r.click&&isFinite(r.capStart)){opt.bpm=r.click.bpm;opt.metre=r.click.beats===3?'3/4':'4/4';const cx=AC;opt.grid={t0:r.click.downbeat-r.capStart,lat:Math.min(0.3,(cx.outputLatency||0)+(cx.baseLatency||0)+0.03)}}
   analyse(x,r.sr,(SET.words?'Sung ':'Hummed ')+new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}),opt);
 }
-function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}show('home')}
+function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}const rt=S.retake;S.retake=null;show(rt?'result':'home')}
 
 // the live view: the note being hummed and a trail of the pitch
 function liveLoop(){const r=S.rec;if(!r)return;
@@ -746,18 +838,35 @@ async function openFile(f){if(!f)return;show('work');$('#workMsg').textContent='
   catch(e){toast('That file could not be read as audio.',4000);show('home')}}
 
 /* ---------- analysis ---------- */
+async function prep(x,sr){let y=x;
+  if(sr!==TC.SR){const off=new OfflineAudioContext(1,Math.ceil(x.length*TC.SR/sr),TC.SR);const b=off.createBuffer(1,x.length,sr);b.copyToChannel(x,0);
+    const s=off.createBufferSource();s.buffer=b;s.connect(off.destination);s.start();y=(await off.startRendering()).getChannelData(0)}
+  let pk=0;for(let i=0;i<y.length;i++)pk=Math.max(pk,Math.abs(y[i]));if(pk>0&&pk<0.5){const g=0.5/pk;y=y.map(v=>v*g)}
+  return y}
+// a phrase sung again: caught on its own, then combined with the takes that phrase already has
+async function analyseRetake(x,sr,rt){show('work');$('#workMsg').textContent='Adding your take…';await new Promise(r=>setTimeout(r,60));
+  const y=await prep(x,sr);const notes=TC.segment(TC.track(y)).notes;
+  if(!notes.length){toast('No clear notes in that take. Try it again, a little louder.',4000);show('result');return}
+  push();if(!TC.addTake(S.cur.song,rt.pi,notes)){S.undo.pop();toast('That take could not be used.');show('result');return}
+  relyric();S.cur.edited=true;S.sel=-1;saveCur();show('result');syncControls();render();
+  const P=TC.phrasesOf(S.cur.song.ev)[rt.pi],h=S.cur.song.ev[P.i0],un=S.cur.song.ev.slice(P.i0,P.i1).filter(n=>n.un).length;
+  toast(`Phrase ${rt.pi+1}: ${h.takes.length} takes`+(un?`, ${un} note${un>1?'s':''} to check (orange)`:', all agreed'),3500)}
+function singPhrase(pi){const P=TC.phrasesOf(S.cur.song.ev)[pi];if(!P)return;S.retake={pi,i0:P.i0,text:phraseText(P)};startRec()}
+function phraseText(P){const ev=S.cur.song.ev.slice(P.i0,P.i1);const w=TC.lyricsText(ev);return w||ev.slice(0,6).map(n=>spelt(n.k)).join(' ')+(ev.length>6?' …':'')}
+function renderPhrases(){const ul=$('#phraseList');ul.innerHTML='';const ev=S.cur.song.ev;TC.ensurePhrases(ev);
+  TC.phrasesOf(ev).forEach((P,pi)=>{const li=document.createElement('li'),h=ev[P.i0],nt=h.takes?h.takes.length:1,un=ev.slice(P.i0,P.i1).filter(n=>n.un).length;
+    li.innerHTML='<span class="ptxt"></span><button class="ghost" aria-label="Play this phrase">▶</button><button class="secondary">Sing again</button>';
+    const t=li.querySelector('.ptxt');t.textContent=(pi+1)+' · '+phraseText(P);const sm=document.createElement('small');sm.textContent=(nt>1?nt+' takes':'')+(un?(nt>1?', ':'')+un+' to check':'');t.appendChild(sm);
+    const [bp,bs]=li.querySelectorAll('button');bp.onclick=()=>playTune([P.i0,P.i1]);bs.onclick=()=>{stopPlay();singPhrase(pi)};ul.appendChild(li)})}
 async function analyse(x,sr,title,opt){opt=opt||{};
   show('work');$('#workMsg').textContent='Catching the notes…';
   S.audio={x,sr};
   await new Promise(r=>setTimeout(r,60));
-  let y=x;
-  if(sr!==TC.SR){const off=new OfflineAudioContext(1,Math.ceil(x.length*TC.SR/sr),TC.SR);const b=off.createBuffer(1,x.length,sr);b.copyToChannel(x,0);
-    const s=off.createBufferSource();s.buffer=b;s.connect(off.destination);s.start();y=(await off.startRendering()).getChannelData(0)}
-  // normalise
-  let pk=0;for(let i=0;i<y.length;i++)pk=Math.max(pk,Math.abs(y[i]));if(pk>0&&pk<0.5){const g=0.5/pk;y=y.map(v=>v*g)}
+  const y=await prep(x,sr);
   S.y=y;const r=TC.transcribe(y,opt);
   if(!r.ok){S.failTitle=title;show('fail');return}
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
+  r.song.ev.forEach(n=>{n.t=+n.t.toFixed(3)});
   S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
   saveCur();openResult();
   if(SET.words)listenWords();
@@ -790,7 +899,7 @@ function onWords(e){const d=e.data,st=$('#wordsStatus');if(d.type==='progress'||
   if(!d.timeout&&nsyl<want*0.8&&job.tries<VARIANTS.length){dog();const v=VARIANTS[job.tries++](S.y,S.cur.notes);job.shift=v.shift;st.textContent='Listening again…';W.postMessage({audio:v.audio,enc:window.TC_ENC});return}
   wJob=null;$('#wordsListen').disabled=false;const best=job.best.words;
   if(!best.length){st.textContent='No words heard.';return}
-  S.cur.words=best;S.cur.wordsTyped=null;TC.setLyrics(S.cur.song.ev,best);saveCur();st.textContent='Check the words, correct them here, then “Put under the notes”.';$('#wordsText').value=TC.lyricsText(S.cur.song.ev);render()}
+  S.cur.words=best;S.cur.wordsTyped=null;TC.setLyrics(S.cur.song.ev,best);TC.phrasesFromWords(S.cur.song.ev);saveCur();st.textContent='Check the words, correct them here, then “Put under the notes”.';$('#wordsText').value=TC.lyricsText(S.cur.song.ev);render()}
 const VARIANTS=[
   y=>({audio:y.map(v=>v*0.5),shift:0}),
   (y,notes)=>{const t=Math.max(0,(notes[0]?notes[0].t:0)-0.15),i=Math.floor(t*TC.SR);return {audio:y.slice(i),shift:i/TC.SR}},
@@ -813,7 +922,9 @@ function render(){
   S.visual=ABCJS.renderAbc('paper',abc,{responsive:'resize',add_classes:true,staffwidth:w,paddingleft:0,paddingright:0,paddingtop:6,
     wrap:{minSpacing:1.6,maxSpacing:2.6,preferredMeasuresPerLine:4},
     clickListener:(el)=>{if(el.el_type!=='note'){select(-1);return}const st=el.startChar;let m=null,bd=3;for(const q of map){const d=st>=q[0]&&st<q[1]?0:Math.abs(q[0]-st);if(d<bd){bd=d;m=q}}if(m)select(m[2]);else select(-1)}})[0];
+  s.ev.forEach((n,i)=>{if(n.un)for(const a of elsFor(i))(a.elemset||[]).forEach(e=>e.classList&&e.classList.add('tc-unsure'))});
   if(S.sel>=0)mark(S.sel);
+  renderPhrases();
   $('#meta').textContent=`${s.K.name} · ${s.metre} · ${Math.round(s.bpm)} bpm · ${s.ev.length} notes`+(s.offsetCents?` · sung ${s.offsetCents>0?'+':''}${s.offsetCents} cents from A440`:'');
   $('#editBar').hidden=S.sel<0;
   if(S.sel>=0){const n=s.ev[S.sel];$('#selName').textContent=spelt(n.k)}
@@ -827,22 +938,28 @@ function select(i){S.sel=i;$('#editBar').hidden=i<0;mark(i);if(i>=0){const n=S.c
 function push(){S.undo.push(JSON.stringify(S.cur.song));if(S.undo.length>60)S.undo.shift()}
 function edit(fn){push();fn(S.cur.song);S.cur.edited=true;S.cur.song.ev.sort((a,b)=>a.s-b.s);saveCur();syncControls();render()}
 const shiftFrom=(ev,i,d)=>{for(let j=i+1;j<ev.length;j++){ev[j].s+=d;ev[j].e+=d}};
+const dropTakes=(ev,i)=>{let j=i;while(j>0&&!ev[j].pb)j--;delete ev[j].takes;delete ev[j].p0};
 const OPS={
+  pb:s=>{const i=S.sel,n=s.ev[i];if(i<=0)return;dropTakes(s.ev,i-1);if(n.pb){delete n.pb;delete n.takes;delete n.p0}else n.pb=true},
   up:s=>{s.ev[S.sel].k++;beep(s.ev[S.sel].k,.3)},
   down:s=>{s.ev[S.sel].k--;beep(s.ev[S.sel].k,.3)},
   oup:s=>{s.ev[S.sel].k+=12;beep(s.ev[S.sel].k,.3)},
   odown:s=>{s.ev[S.sel].k-=12;beep(s.ev[S.sel].k,.3)},
   longer:s=>{const n=s.ev[S.sel];n.e++;shiftFrom(s.ev,S.sel,1)},
   shorter:s=>{const n=s.ev[S.sel];if(n.e-n.s<=1)return;n.e--;shiftFrom(s.ev,S.sel,-1)},
-  del:s=>{const n=s.ev[S.sel],d=n.e-n.s;s.ev.splice(S.sel,1);for(let j=S.sel;j<s.ev.length;j++){s.ev[j].s-=d;s.ev[j].e-=d}S.sel=Math.min(S.sel,s.ev.length-1)},
+  del:s=>{const n=s.ev[S.sel],d=n.e-n.s,nx=s.ev[S.sel+1];if(n.pb&&nx&&!nx.pb)nx.pb=true;s.ev.splice(S.sel,1);for(let j=S.sel;j<s.ev.length;j++){s.ev[j].s-=d;s.ev[j].e-=d}S.sel=Math.min(S.sel,s.ev.length-1)},
 };
 function undo(){if(!S.undo.length)return;S.cur.song=JSON.parse(S.undo.pop());S.sel=-1;saveCur();syncControls();render()}
 function setKey(v){const [f,m]=v.split('|');edit(s=>{s.K=TC.keyFromFifths(+f,m)})}
 function setMetre(mt){edit(s=>{const p=TC.place(s.ev,mt);s.ev=p.ev;s.pickup=p.pickup;s.metre=mt})}
 function setTempo(bpm){bpm=Math.max(30,Math.min(260,Math.round(bpm)));const c=S.cur;
+  if(c.song.ev.some(n=>n.takes)){   // with several takes the notes stay as they are: only the speed changes (½ and ×2 rescale the note values)
+    const f=bpm/c.song.bpm,sc=Math.abs(f-2)<0.05?2:Math.abs(f-0.5)<0.03?0.5:1;
+    edit(s=>{if(sc!==1){const z=s.ev[0].s;let last=-1;for(const n of s.ev){let a=Math.round((n.s-z)*sc),b=Math.round((n.e-z)*sc);if(a<=last)a=last+1;if(b<=a)b=a+1;last=a;n.s=a;n.e=b}
+      for(let i=0;i<s.ev.length-1;i++)if(s.ev[i].e>s.ev[i+1].s)s.ev[i].e=s.ev[i+1].s;for(const n of s.ev){delete n.takes;delete n.p0}const p=TC.place(s.ev,s.metre);s.ev=p.ev;s.pickup=p.pickup}s.bpm=bpm});return}
   if(c.edited&&!confirm('Changing the tempo works the rhythm out again from your humming, so your note edits will be lost (Undo brings them back). Go on?'))return;
   const grid=c.grid&&Math.abs(bpm-c.song.bpm)<0.5?c.grid:null;if(!grid)c.grid=null;
-  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre,grid});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm;relyric()});c.edited=false}
+  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre,grid});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm;TC.ensurePhrases(s.ev);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.edited=false}
 function transposeAll(d){edit(s=>{for(const n of s.ev)n.k+=d;const f=((s.K.fifths+7*d)%12+12+6)%12-6;s.K=TC.keyFromFifths(f===6&&s.K.fifths<0?-6:f,s.K.mode)})}
 
 /* ---------- sound ---------- */
@@ -855,14 +972,14 @@ function voice(ctx,k,t,dur,vel,dest){const f=440*Math.pow(2,(k-69)/12);const g=c
 function beep(k,d){const ctx=ac();voice(ctx,k,ctx.currentTime+0.01,d||0.3,90,ctx.destination)}
 function stopPlay(){const p=S.playing;if(!p)return;S.playing=null;try{p.nodes.forEach(n=>n.stop())}catch(e){}try{p.out.disconnect()}catch(e){}
   cancelAnimationFrame(p.raf);$$('#paper .tc-play').forEach(e=>e.classList.remove('tc-play'));$('#play').textContent='▶ Play';$('#playRec').textContent='▶ My humming'}
-function playTune(){if(S.playing){const was=S.playing.kind;stopPlay();if(was==='tune')return}
-  const ctx=ac(),s=S.cur.song,sx=60/s.bpm/4;const out=ctx.createGain();out.connect(ctx.destination);const t0=ctx.currentTime+0.12,z=s.ev.length?s.ev[0].s:0;const nodes=[];
+function playTune(range){range=Array.isArray(range)?range:null;if(S.playing){const was=S.playing.kind;stopPlay();if(was==='tune'&&!range)return}
+  const ctx=ac(),s=S.cur.song,sx=60/s.bpm/4;const out=ctx.createGain();out.connect(ctx.destination);const all=s.ev;const sub=range?all.slice(range[0],range[1]):all;const t0=ctx.currentTime+0.12,z=sub.length?sub[0].s:0;const nodes=[];
   // a soft click on each beat for the first bar
-  for(const n of s.ev)nodes.push(...voice(ctx,n.k,t0+(n.s-z)*sx,(n.e-n.s)*sx,n.vel,out));
-  const endT=t0+((s.ev.length?s.ev[s.ev.length-1].e:0)-z)*sx;
+  for(const n of sub)nodes.push(...voice(ctx,n.k,t0+(n.s-z)*sx,(n.e-n.s)*sx,n.vel,out));
+  const endT=t0+((sub.length?sub[sub.length-1].e:0)-z)*sx,lo=range?range[0]:0,hi=range?range[1]:all.length;
   const P={kind:'tune',nodes,out,raf:0};S.playing=P;$('#play').textContent='■ Stop';let last=-1;
   const tick=()=>{if(S.playing!==P)return;const t=ctx.currentTime;if(t>endT+0.2){stopPlay();return}
-    const pos=(t-t0)/sx+z;let i=-1;for(let j=0;j<s.ev.length;j++)if(pos>=s.ev[j].s&&pos<s.ev[j].e){i=j;break}
+    const pos=(t-t0)/sx+z;let i=-1;for(let j=lo;j<hi;j++)if(pos>=s.ev[j].s&&pos<s.ev[j].e){i=j;break}
     if(i!==last){$$('#paper .tc-play').forEach(e=>e.classList.remove('tc-play'));if(i>=0)for(const a of elsFor(i))(a.elemset||[]).forEach(e=>e.classList&&e.classList.add('tc-play'));last=i}
     P.raf=requestAnimationFrame(tick)};tick()}
 function playRec(){if(S.playing){const was=S.playing.kind;stopPlay();if(was==='rec')return}
@@ -896,8 +1013,8 @@ function init(){
   $('#home').onclick=()=>{stopPlay();show('home')};
   $('#again').onclick=()=>{stopPlay();startRec()};
   $('#title').onchange=e=>{S.cur.title=e.target.value.trim();saveCur()};
-  $('#play').onclick=playTune;$('#playRec').onclick=playRec;
-  $$('[data-op]').forEach(b=>b.onclick=()=>{if(S.sel<0)return;edit(OPS[b.dataset.op])});
+  $('#play').onclick=()=>playTune();$('#playRec').onclick=playRec;
+  $$('[data-op]').forEach(b=>b.onclick=()=>{if(S.sel<0)return;edit(s=>{const n=s.ev[S.sel];if(n)delete n.un;OPS[b.dataset.op](s)})});
   $('#done').onclick=()=>select(-1);
   $('#undo').onclick=undo;
   $('#keySel').onchange=e=>setKey(e.target.value);
@@ -926,7 +1043,7 @@ function init(){
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 // for tests
-window.TCAPP={S,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
+window.TCAPP={S,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
 </script>
 </body>
