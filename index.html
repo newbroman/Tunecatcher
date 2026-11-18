@@ -101,6 +101,22 @@ dialog li{margin:.4em 0}
   .printonly{display:block;font-family:var(--serif);font-weight:400;text-align:center;color:#000}
 }
 @media (min-width:600px){.controls{grid-template-columns:repeat(3,1fr)}.tempo{grid-column:span 3}}
+
+.opts{display:flex;flex-direction:column;gap:8px;max-width:22em;margin:0 auto 1.6em;text-align:left}
+.opt{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--ink2);border-radius:12px;padding:.45em .5em .45em .9em;font-size:.92rem}
+.opt select{background:var(--ink3);border:0;border-radius:9px;padding:.45em .5em;color:var(--text)}
+.stepper{display:flex;align-items:center;gap:6px}.stepper button{padding:.35em .75em}.stepper b{min-width:2.4em;text-align:center;font-variant-numeric:tabular-nums}
+.opt.chk{justify-content:flex-start;cursor:pointer;padding:.6em .9em}.opt.chk input{width:20px;height:20px;accent-color:var(--amber);flex:none}
+.opt.chk span{display:flex;flex-direction:column}.opt.chk small{color:var(--dim);font-size:.78rem}
+.beats{display:flex;gap:12px;justify-content:center;margin:-6px 0 8px}
+.beats i{width:14px;height:14px;border-radius:50%;background:var(--ink3);transition:background .05s}
+.beats i.on{background:var(--amber)}.beats i.on.one{background:#fff}
+.bignote.count{color:var(--amber)}
+.wordsbox{background:var(--ink2);border-radius:14px;padding:10px 12px;margin:0 0 12px}
+.wordshead{display:flex;justify-content:space-between;align-items:baseline;font-size:.85rem;color:var(--dim)}.wordshead b{color:var(--text);font-size:.95rem}
+#wordsText{width:100%;margin-top:6px;background:var(--ink3);color:var(--text);border:0;border-radius:10px;padding:.6em .7em;font:inherit;resize:vertical}
+.row.left{justify-content:flex-start;margin:8px 0 2px}.row.left button{padding:.5em .85em;font-size:.88rem}
+@media print{.wordsbox{display:none!important}}
 </style>
 </head>
 <body>
@@ -114,7 +130,12 @@ dialog li{margin:.4em 0}
   <h1>Hum it. Catch it.</h1>
   <p class="lede">Hum a tune and get it back as sheet music you can play, fix and save.</p>
   <button id="catch" class="catch" aria-label="Start humming"><span class="ring"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z" fill="currentColor"/></svg></button>
-  <p class="under">Tap and hum</p>
+  <p class="under">Tap and hum, or sing</p>
+  <div class="opts">
+    <div class="opt"><span>Count-in click</span><select id="clickSel"><option value="0">Off</option><option value="3">3 beats (waltz)</option><option value="4">4 beats</option></select></div>
+    <div class="opt" id="clickTempo" hidden><span>Tempo</span><div class="stepper"><button id="cSlower" aria-label="Slower">−</button><b id="cBpm">90</b><button id="cFaster" aria-label="Faster">+</button></div></div>
+    <label class="opt chk"><input type="checkbox" id="wordsChk"><span>Write the words too<small>for singing; uses a speech model on this device</small></span></label>
+  </div>
   <p id="noMic" class="warn" hidden>This browser can’t use the microphone here. You can still open a recording.</p>
   <label class="filebtn">Open a recording<input id="file" type="file" accept="audio/*,video/*" hidden></label>
   <div id="listWrap" hidden><h2>Your catches</h2><ul id="list"></ul></div>
@@ -124,6 +145,7 @@ dialog li{margin:.4em 0}
 <section data-view="rec" class="rec" hidden>
   <div id="recLevel" class="level"></div>
   <div id="recNote" class="bignote">·</div>
+  <div id="beatDots" class="beats" hidden></div>
   <canvas id="trail"></canvas>
   <div id="recTime" class="time">0:00</div>
   <p class="tip">Hum on “mm” or “da”. Give repeated notes a little gap.</p>
@@ -154,6 +176,11 @@ dialog li{margin:.4em 0}
   </div>
   <div class="row play"><button id="play" class="primary">▶ Play</button><button id="playRec" class="secondary">▶ My humming</button><button id="undo" class="ghost" disabled>↶ Undo</button></div>
   <p class="hint">Tap a note to fix it.</p>
+  <div id="wordsBox" class="wordsbox">
+    <div class="wordshead"><b>Words</b><span id="wordsStatus"></span></div>
+    <textarea id="wordsText" rows="3" placeholder="Type the words here, or tap “Listen for the words”."></textarea>
+    <div class="row left"><button id="wordsApply" class="secondary">Put under the notes</button><button id="wordsListen" class="secondary">Listen for the words</button><button id="wordsClear" class="ghost">Clear</button></div>
+  </div>
   <div class="controls">
     <label>Key<select id="keySel"></select></label>
     <label>Time<select id="metreSel"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
@@ -177,7 +204,8 @@ dialog li{margin:.4em 0}
 <dialog id="help">
   <h2>How to catch a tune</h2>
   <ol>
-    <li>Tap the microphone and hum, on “mm”, “da” or “la”. Sing the words if you like; the tune is what gets caught.</li>
+    <li>Tap the microphone and hum, on “mm”, “da” or “la”, or sing. Turn on <i>Write the words too</i> and the words go under the notes.</li>
+    <li>For the best rhythm, turn on the <i>count-in click</i>: choose 3 or 4 beats and a tempo, wait for the count, and sing along with the click. Headphones keep the click out of the recording.</li>
     <li>Leave a small gap between repeated notes, so they come out as two.</li>
     <li>Keep a steady beat. Tunecatcher works out the tempo, the time and the key.</li>
     <li>Tap ■ Done. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
@@ -185,6 +213,12 @@ dialog li{margin:.4em 0}
   </ol>
   <p>Your humming never leaves the phone. Catches are kept on this device only.</p>
   <button id="helpClose" class="primary">Got it</button>
+</dialog>
+<dialog id="wordsAsk">
+  <h2>Write the words?</h2>
+  <p>Tunecatcher listens for the words with a speech model that runs on this device. Your singing is not sent anywhere.</p>
+  <p>The first time, the model has to be downloaded: about <b>95 MB</b>, once. After that it works offline. Best on Wi-Fi.</p>
+  <div class="row"><button id="wordsNo" class="ghost">Not now</button><button id="wordsYes" class="primary">Download and use</button></div>
 </dialog>
 <div id="toast" class="toast" hidden></div>
 <script>/*! abcjs_basic v6.4.4 Copyright © 2009-2024 Paul Rosen and Gregory Dyke (https://abcjs.net) */
@@ -247,7 +281,7 @@ function voicing(tr){
 }
 function tuningOf(m,v){let sx=0,sy=0;for(let i=0;i<m.length;i++){if(isNaN(m[i])||v[i]<0.4)continue;const a=2*Math.PI*(m[i]-Math.round(m[i]));sx+=Math.cos(a)*v[i];sy+=Math.sin(a)*v[i]}
   return (sx||sy)?Math.atan2(sy,sx)/(2*Math.PI):0}
-const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
+const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
 function viterbi(m,v,off,lo,hi,scale){
   const n=m.length,N=hi-lo+1,S=N+1;   // state 0 silence, 1..N pitches lo..hi
   const {SIG,CAP,P_CHANGE,P_ON,P_OFF,P_SCALE}=PARAMS;
@@ -293,7 +327,9 @@ function runsToNotes(path,m,v,rms,syl){
     // runs of the note path inside the syllable
     const runs=[];for(let i=a;i<b;){const k=path[i];let j=i;while(j<b&&path[j]===k)j++;if(k>=0)runs.push({a:i,b:j,k});i=j}
     // short runs are slides: they go to their longer neighbour
-    let changed=true;while(changed&&runs.length>1){changed=false;let si=-1,sl=1e9;runs.forEach((r,i)=>{const l=r.b-r.a;if(l<PARAMS.SLIDE&&l<sl){sl=l;si=i}});
+    let changed=true;while(changed&&runs.length>1){changed=false;let si=-1,sl=1e9;runs.forEach((r,i)=>{const l=r.b-r.a;
+        // a slide into the first note or off the last can be longer than one in the middle
+        const lim=(i===0||i===runs.length-1)?PARAMS.SCOOP:PARAMS.SLIDE;if(l<lim&&l<sl){sl=l;si=i}});
       if(si>=0){const r=runs[si],L=runs[si-1],R=runs[si+1];const t=!L?R:!R?L:(L.b-L.a>=R.b-R.a?L:R);if(t===L)L.b=r.b;else R.a=r.a;runs.splice(si,1);changed=true}
       // neighbours on the same note join
       for(let i=1;i<runs.length;i++)if(runs[i].k===runs[i-1].k){runs[i-1].b=runs[i].b;runs.splice(i,1);i--;changed=true}}
@@ -301,9 +337,14 @@ function runsToNotes(path,m,v,rms,syl){
     // the syllable's note(s) span the whole syllable
     runs[0].a=a;runs[runs.length-1].b=b;
     for(const r of runs){let loud=0;const fr=[];for(let i=r.a;i<r.b;i++){loud=Math.max(loud,rms[i]);if(!isNaN(m[i]))fr.push(m[i])}
-      const mm=r.mm!=null?r.mm:(fr.length?median(fr):r.k);notes.push({t:r.a/FPS,d:(r.b-r.a)/FPS,k:r.k,m:mm,v:loud})}}
+      // the pitch the singer settles on: the later part of the note, past any scoop
+      const late=fr.slice(Math.floor(fr.length*0.4));const mm=r.mm!=null?r.mm:(late.length?median(late):r.k);
+      notes.push({t:r.a/FPS,d:(r.b-r.a)/FPS,k:r.k,m:mm,v:loud,late:runs.length===1})}}
   return notes}
-function fillK(notes,off){for(const nt of notes)if(nt.k==null)nt.k=Math.round(nt.m-off);return notes}
+function fillK(notes,off,sc){for(const nt of notes){if(nt.k==null||nt.late){const x=nt.m-off;let k=Math.round(x);
+    // in the second pass, a note just off the scale goes to the nearer scale note
+    if(sc&&!sc[(k%12+12)%12]){let best=null;for(const c of [k-1,k+1])if(sc[(c%12+12)%12]&&Math.abs(x-c)<PARAMS.SNAP&&(!best||Math.abs(x-c)<Math.abs(x-best)))best=c;if(best!=null)k=best}
+    nt.k=k}delete nt.late}return notes}
 function segment(tr){
   const n=tr.f.length;if(!n)return {notes:[],offset:0};
   const {m,v,rms}=voicing(tr);
@@ -316,15 +357,15 @@ function segment(tr){
   for(let i=0;i<notes.length;i++){const nt=notes[i];if(nt.d>0.25)continue;const nb=[notes[i-1],notes[i+1]].filter(Boolean);if(!nb.length)continue;
     for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
   // second pass: lean towards the key found in the first
-  if(notes.length>=4){const K=key(notes.map(x=>({k:x.k,s:0,e:Math.max(1,Math.round(x.d*8))})));
+  if(notes.length>=4){const K=key(notes.map(x=>({k:x.k,s:0,e:Math.max(1,Math.round(x.d*8))})));if(K.c<PARAMS.KEYC)return finish(notes,off);
     const sc=new Array(12).fill(false);const steps=K.mode==='major'?[0,2,4,5,7,9,11]:[0,2,3,5,7,8,10,11];for(const st of steps)sc[(K.pc+st)%12]=true;
-    const p2=viterbi(m,v,off,lo,hi,sc);const n2=fillK(runsToNotes(p2,m,v,rms,syl),off);
+    const p2=viterbi(m,v,off,lo,hi,sc);const n2=fillK(runsToNotes(p2,m,v,rms,syl),off,sc);
     for(let i=0;i<n2.length;i++){const nt=n2[i];if(nt.d>0.25)continue;const nb=[n2[i-1],n2[i+1]].filter(Boolean);if(!nb.length)continue;
       for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
     notes=n2}
-  const vmax=Math.max(1e-6,...notes.map(o=>o.v));notes.forEach(o=>{o.vel=Math.round(50+60*Math.min(1,o.v/vmax));o.by='hmm'});
-  return {notes,offset:off};
+  return finish(notes,off);
 }
+function finish(notes,off){const vmax=Math.max(1e-6,...notes.map(o=>o.v));notes.forEach(o=>{o.vel=Math.round(50+60*Math.min(1,o.v/vmax));o.by='hmm'});return {notes,offset:off}}
 
 /* ---------- tempo: the beat that makes the gaps between note starts simplest ---------- */
 function tempo(notes){
@@ -353,7 +394,7 @@ function quantise(notes,beat,metre){
       if(c===1&&r>=3&&r%2){const lo=r-1,hi=r+1,alt=Math.abs(u-lo)<Math.abs(u-hi)?lo:hi;if(Math.abs(u-alt)<0.62*Math.max(1,Math.sqrt(r/4)))r=alt}
       pos+=r*c;
       if(Math.abs(u-r)<0.35*Math.max(1,Math.sqrt(r*c/4))&&r*c<=16)g=g*0.8+0.2*(ioi/r)}   // follow a drifting tempo
-    q.push({k:n.k,vel:n.vel,s:pos,dur:n.d,g})}
+    q.push({k:n.k,vel:n.vel,s:pos,dur:n.d,g,t:n.t})}
   for(let i=0;i<q.length;i++){const n=q[i],nx=q[i+1];const held=Math.max(1,Math.round(n.dur/n.g))*c;
     if(!nx){let e=n.s+held;if(held>=3&&held%2)e++;n.e=e;continue}
     const gap=nx.s-(n.s+held);
@@ -363,6 +404,21 @@ function quantise(notes,beat,metre){
   // the last note is often cut short by the end of the recording: hold it to the next beat
   const L=ev[ev.length-1],rem=(M.beat-(L.e%M.beat))%M.beat;if(rem&&L.e-L.s<M.beat*2)L.e+=rem;
   return {ev,pickup:pl.pickup,off:bestOff,len:ev.length?ev[ev.length-1].e:0,score:bestS};
+}
+// with a click: the beat and the downbeat are known (t0: the first downbeat after the count-in, in seconds of the recording)
+function quantiseGrid(notes,beat,metre,t0,lat0){
+  if(!notes.length)return {ev:[],len:0,pickup:0};
+  const c=beat/4<PARAMS.FINE?2:1,u=beat/4*c,M=METRES[metre],L=M.len;
+  // the singer is late on every note by the same latency (speaker, microphone, reaction): the delay that best fits the eighth grid, near the expected one
+  const e8=beat/2,hint=lat0==null?0.08:lat0;let bl=0,bs=-1e9;
+  for(let lat=-0.04;lat<=0.32;lat+=0.004){let sc=0;for(const n of notes)sc+=Math.cos(2*Math.PI*((n.t-t0-lat)/e8));sc=sc/notes.length-0.5*Math.pow((lat-hint)/0.15,2);if(sc>bs){bs=sc;bl=lat}}
+  t0+=bl;
+  const q=[];for(const n of notes){let st=Math.round((n.t-t0)/u)*c;if(q.length&&st<=q[q.length-1].s)st=q[q.length-1].s+c;q.push({k:n.k,vel:n.vel,s:st,dur:n.d,t:n.t})}
+  for(let i=0;i<q.length;i++){const n=q[i],nx=q[i+1];const held=Math.max(1,Math.round(n.dur/u))*c;
+    if(!nx){n.e=n.s+held;const rem=(M.beat-(n.e%M.beat)+L)%M.beat;if(rem&&held<M.beat*2)n.e+=rem;continue}
+    n.e=nx.s-(n.s+held)>=PARAMS.REST?n.s+held:nx.s}
+  const sh=-Math.floor(q[0].s/L)*L;for(const n of q){n.s+=sh;n.e+=sh;delete n.dur}
+  const p0=q[0].s%L;return {ev:q,pickup:p0?L-p0:0,len:q[q.length-1].e,t0};
 }
 // where the bar lines go: the shift that puts the longest notes on the strongest beats (positions taken from the first note)
 function place(evIn,metre){
@@ -400,7 +456,7 @@ function key(ev){
   let best=null;for(let pc=0;pc<12;pc++)for(const mode of ['major','minor']){const prof=mode==='major'?KMAJ:KMIN;const r=[];for(let i=0;i<12;i++)r.push(prof[(i-pc+12)%12]);
     const c=corr(h,r);if(!best||c>best.c)best={pc,mode,c}}
   const fifths=best.mode==='major'?MAJ_FIFTHS[best.pc]:MAJ_FIFTHS[(best.pc+3)%12];
-  return {pc:best.pc,mode:best.mode,fifths,name:keyName(best.pc,best.mode,fifths)};
+  return {pc:best.pc,mode:best.mode,fifths,name:keyName(best.pc,best.mode,fifths),c:best.c};
 }
 const SH=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'],FL=['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
 function keyName(pc,mode,fifths){return (fifths<0?FL:SH)[pc]+(mode==='major'?' major':' minor')}
@@ -456,7 +512,8 @@ function toABC(song,opt){
   const keyABC=abcKey(K);
   let head=`X:1\nT:${opt.title||''}\nM:${M.num}/${M.den}\nL:1/16\nQ:1/4=${Math.round(bpm)}\nK:${keyABC} clef=${clef}\n`;
   let body='';const map=[];   // map[i] = [charStart,charEnd,eventIndex] for each written note piece
-  const B=bars(ev,metre,pickup);
+  const B=bars(ev,metre,pickup);const words=ev.some(n=>n.ly!=null);let wl='';
+  const tok=(n,first)=>{if(!first||n.mel)return '_';if(n.ly==null)return '*';return n.ly.replace(/\s+/g,'~').replace(/[-_*|]/g,'')+(n.syl==='begin'||n.syl==='middle'?'-':'')};
   B.forEach((bar,bi)=>{const acc={};
     for(const it of bar.items){
       const pieces=spanPieces(it.s,it.e,M);let t=it.s;
@@ -467,10 +524,10 @@ function toABC(song,opt){
           if(al!==have){a=al===1?'^':al===-1?'_':'=';acc[id]=al}
           let name=oc>=5?st.toLowerCase()+"'".repeat(oc-5):st+','.repeat(Math.max(0,4-oc));
           body+=a+name+(p===1?'':p);const tie=pi<pieces.length-1||(pi===pieces.length-1&&it.tieOut);if(tie)body+='-';
-          map.push([start,head.length+body.length,it.i])}
+          map.push([start,head.length+body.length,it.i]);if(words)wl+=tok(ev[it.i],pi===0&&!it.tieIn)+' '}
         t+=p});
     }
-    body+=bi===B.length-1?' |]':' | ';if((bi+1)%4===0&&bi<B.length-1)body+='\n';
+    body+=bi===B.length-1?' |]':' | ';const eol=(bi+1)%4===0||bi===B.length-1;if(eol&&words&&wl.trim()){body+='\nw:'+wl.trim();wl=''}if(eol&&bi<B.length-1)body+='\n';
   });
   return {abc:head+body+'\n',map};
 }
@@ -510,12 +567,60 @@ function toMusicXML(song,opt){
         const [st,al,oc]=spell(it.k,K.fifths);const id=st+oc;const have=id in acc?acc[id]:(ka[st]||0);let accx='';
         if(al!==have){accx=`<accidental>${al===1?'sharp':al===-1?'flat':'natural'}</accidental>`;acc[id]=al}
         const tStart=(pi>0)||it.tieIn,tStop=(pi<pieces.length-1)||it.tieOut;
-        x+=`<note><pitch><step>${st}</step>${al?`<alter>${al}</alter>`:''}<octave>${oc}</octave></pitch><duration>${p}</duration>${tStart?'<tie type="stop"/>':''}${tStop?'<tie type="start"/>':''}<type>${ty}</type>${dot?'<dot/>':''}${accx}${tStart||tStop?`<notations>${tStart?'<tied type="stop"/>':''}${tStop?'<tied type="start"/>':''}</notations>`:''}</note>`});
+        x+=`<note><pitch><step>${st}</step>${al?`<alter>${al}</alter>`:''}<octave>${oc}</octave></pitch><duration>${p}</duration>${tStart?'<tie type="stop"/>':''}${tStop?'<tie type="start"/>':''}<type>${ty}</type>${dot?'<dot/>':''}${accx}${tStart||tStop?`<notations>${tStart?'<tied type="stop"/>':''}${tStop?'<tied type="start"/>':''}</notations>`:''}${!tStart&&ev[it.i].ly!=null?`<lyric number="1"><syllabic>${ev[it.i].syl||'single'}</syllabic><text>${ev[it.i].ly.replace(/[<&]/g,'')}</text></lyric>`:''}</note>`});
     }
     if(bi===B.length-1)x+='<barline location="right"><bar-style>light-heavy</bar-style></barline>';
     x+='</measure>'});
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 4.0 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">\n<score-partwise version="4.0"><work><work-title>${(opt.title||'Tunecatcher').replace(/[<&]/g,'')}</work-title></work><identification><encoding><software>Tunecatcher</software></encoding></identification><part-list><score-part id="P1"><part-name>Melody</part-name></score-part></part-list><part id="P1">${x}</part></score-partwise>\n`;
 }
+
+/* ---------- words ---------- */
+const ONSETS=new Set('bl br cl cr dr fl fr gl gr pl pr sc sk sl sm sn sp st sw tr tw th ch sh wh ph qu wr kn gn thr shr spr spl scr str squ'.split(' '));
+function syllabify(word){
+  const w=word.toLowerCase(),V=/[aeiouy]/;const groups=[];let i=0;
+  while(i<w.length){if(V.test(w[i])&&!(w[i]==='y'&&i===0)){let j=i;while(j<w.length&&V.test(w[j]))j++;groups.push([i,j]);i=j}else i++}
+  // a silent final e (but not "-le" after a consonant)
+  if(groups.length>1){const [a,b]=groups[groups.length-1];if(a===w.length-1&&w[a]==='e'&&!(w[a-1]==='l'&&!V.test(w[a-2]||'a'))&&!V.test(w[a-1]))groups.pop()}
+  if(groups.length<2)return [word];
+  const cuts=[];for(let g=1;g<groups.length;g++){const a=groups[g-1][1],b=groups[g][0];const cl=w.slice(a,b);let k=b;
+    if(cl.length===1)k=a;else if(cl.length>1){k=b-1;for(let n=Math.min(3,cl.length-1);n>=2;n--)if(ONSETS.has(cl.slice(cl.length-n))){k=b-n;break}}
+    cuts.push(k)}
+  const out=[];let a=0;for(const k of cuts){if(k>a){out.push(word.slice(a,k));a=k}}out.push(word.slice(a));
+  // consonant + "le" at the end takes its consonant: ta-ble, lit-tle
+  const L=out.length;if(L>1&&/^le$/i.test(out[L-1])&&out[L-2].length>1&&!V.test(out[L-2].slice(-1).toLowerCase())){out[L-1]=out[L-2].slice(-1)+out[L-1];out[L-2]=out[L-2].slice(0,-1)}
+  return out.filter(Boolean);
+}
+// words [{w,s,e}] (seconds) → syllables with a time each
+function sylsOf(words){const out=[];words.forEach((wd,wi)=>{const parts=syllabify(wd.w.replace(/^[^\w']+|[^\w']+$/g,'')||wd.w);const n=parts.length;
+  parts.forEach((p,i)=>out.push({x:p+(i===n-1?(wd.w.match(/[^\w']+$/)||[''])[0].replace(/\s/g,''):''),wi,syl:n===1?'single':i===0?'begin':i===n-1?'end':'middle',t:wd.s+(wd.e-wd.s)*i/n}))});return out}
+function clearLyrics(ev){for(const n of ev){delete n.ly;delete n.syl;delete n.mel}}
+function put(ev,j,y){const n=ev[j];if(n.ly==null){n.ly=y.x;n.syl=y.syl;return}
+  // a second syllable on one note: joined to the first
+  const same=n.syl==='begin'||n.syl==='middle';n.ly+=same?y.x:' '+y.x;n.syl=same?(y.syl==='end'?(n.syl==='begin'?'single':'end'):n.syl):(y.syl==='begin'||y.syl==='middle'?'begin':'single')}
+// the words under the notes, by time (from the speech recogniser): a monotonic alignment
+function setLyrics(ev,words){
+  clearLyrics(ev);if(!words||!words.length||!ev.length)return ev;const S=sylsOf(words);
+  // the recogniser's times lag or lead by a roughly constant amount
+  const lags=[];for(const y of S){let b=1e9;for(const n of ev)if(Math.abs(n.t-y.t)<Math.abs(b))b=n.t-y.t;lags.push(b)}const lag=median(lags);
+  const N=ev.length,M=S.length,SKIP=0.3;const D=Array.from({length:N+1},()=>new Float64Array(M+1).fill(Infinity)),B=Array.from({length:N+1},()=>new Int8Array(M+1));D[0][0]=0;
+  for(let i=0;i<=N;i++)for(let j=0;j<=M;j++){if(!i&&!j)continue;let best=Infinity,b=0;
+    if(i&&j){const c=D[i-1][j-1]+Math.min(1.5,Math.abs(ev[i-1].t-S[j-1].t-lag));if(c<best){best=c;b=1}}
+    if(i){const c=D[i-1][j]+SKIP;if(c<best){best=c;b=2}}          // a note without a syllable: the last one is held
+    if(j&&i){const c=D[i][j-1]+SKIP;if(c<best){best=c;b=3}}       // a syllable without a note of its own: shares this one
+    if(j&&!i){const c=D[i][j-1]+SKIP;if(c<best){best=c;b=4}}
+    D[i][j]=best;B[i][j]=b}
+  const pairs=[];let i=N,j=M;const pending=[];
+  while(i>0||j>0){const b=B[i][j];if(b===1){pairs.push([i-1,j-1]);i--;j--}else if(b===2){ev[i-1].mel=true;i--}else if(b===3){pairs.push([i-1,j-1]);j--}else{pending.push(j-1);j--}}
+  pairs.reverse();for(const [a,c] of pairs)put(ev,a,S[c]);
+  for(const c of pending.reverse())if(ev[0])put(ev,0,S[c]);
+  for(const n of ev)if(n.ly!=null)delete n.mel;
+  return ev}
+// words typed in: one syllable to each note, in order
+function setLyricsInOrder(ev,text){clearLyrics(ev);const words=text.split(/\s+/).filter(Boolean).map(w=>({w,s:0,e:0}));const S=sylsOf(words);
+  for(let i=0;i<ev.length;i++){if(i<S.length)put(ev,i,S[i]);else ev[i].mel=true}
+  for(let j=ev.length;j<S.length;j++)if(ev.length)put(ev,ev.length-1,S[j]);return ev}
+const countSyllables=words=>sylsOf(words).length;
+const lyricsText=ev=>ev.filter(n=>n.ly!=null).map((n,i,a)=>n.ly+(n.syl==='begin'||n.syl==='middle'?'-':' ')).join('').replace(/-\s*/g,'').trim();
 
 /* ---------- the whole way: samples → song ---------- */
 function transcribe(x,opt){
@@ -524,19 +629,19 @@ function transcribe(x,opt){
   if(notes.length<2)return {ok:false,reason:'few',tr,notes};
   const tp=opt.bpm?{beat:60/opt.bpm,conf:1}:tempo(notes);
   const metre=opt.metre||guessMetre(notes,tp.beat);
-  const q=quantise(notes,tp.beat,metre);
+  const q=opt.grid?quantiseGrid(notes,tp.beat,metre,opt.grid.t0,opt.grid.lat):quantise(notes,tp.beat,metre);
   const K=opt.key||key(q.ev);
   const med=median(q.ev.map(n=>n.k));
   const clef=opt.clef||(med<55?'bass':'treble');
   return {ok:true,song:{ev:q.ev,metre,K,bpm:60/tp.beat,pickup:q.pickup,clef,offsetCents:Math.round(seg.offset*100)},tr,notes,tempoConf:tp.conf};
 }
 // re-quantise with a new tempo or metre without listening again
-function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);const q=quantise(notes,60/o.bpm,metre);return {ev:q.ev,pickup:q.pickup,metre,bpm:o.bpm}}
+function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);const q=o.grid?quantiseGrid(notes,60/o.bpm,metre,o.grid.t0,o.grid.lat):quantise(notes,60/o.bpm,metre);return {ev:q.ev,pickup:q.pickup,metre,bpm:o.bpm}}
 
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,PARAMS,place,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
@@ -545,6 +650,8 @@ G.TC={SR,PARAMS,place,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFr
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}};
 const MAXREC=90;   // seconds
+const SET=Object.assign({click:0,bpm:90,words:false,wordsOk:false},store.get('tc.settings',{}));
+const saveSet=()=>store.set('tc.settings',SET);
 
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
@@ -570,24 +677,39 @@ function renderList(){const all=catches(),ul=$('#list');ul.innerHTML='';$('#list
 
 /* ---------- recording ---------- */
 async function startRec(){
+  stopPlay();
   let stream;
   try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
   catch(e){toast('The microphone could not be opened. Allow it for this site, or open a recording instead.',5000);return}
   const ctx=ac();const src=ctx.createMediaStreamSource(stream);
-  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0;
+  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0,capStart=Infinity;
   const an=ctx.createAnalyser();an.fftSize=4096;src.connect(an);
-  proc.onaudioprocess=e=>{const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;if(n/ctx.sampleRate>MAXREC)stopRec()};
+  proc.onaudioprocess=e=>{const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;
+    // when the first sample was captured, in the audio clock (the earliest estimate is the least delayed)
+    capStart=Math.min(capStart,ctx.currentTime-n/ctx.sampleRate);
+    if(n/ctx.sampleRate>MAXREC)stopRec()};
   const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
-  S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:performance.now(),trail:[],get n(){return n}};
+  S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:performance.now(),trail:[],get n(){return n},get capStart(){return capStart}};
+  if(SET.click){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
+    S.rec.click.out.connect(ctx.destination);scheduleClicks();S.rec.click.timer=setInterval(scheduleClicks,40);
+    $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
+  else $('#beatDots').hidden=true;
   show('rec');liveLoop();
 }
-function stopRec(){const r=S.rec;if(!r)return;S.rec=null;
+function tick(ctx,t,accent,vol,dest){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=accent?1760:1175;o.type='sine';
+  g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.002);g.gain.exponentialRampToValueAtTime(0.0001,t+0.05);o.connect(g);g.connect(dest);o.start(t);o.stop(t+0.06)}
+function scheduleClicks(){const r=S.rec;if(!r||!r.click)return;const c=r.click,ctx=ac();
+  while(true){const t=c.first+c.next*c.beat;if(t>ctx.currentTime+0.25)break;
+    const counting=c.next<c.beats;tick(ctx,t,c.next%c.beats===0,counting?0.5:0.18,c.out);c.next++}}
+function endClicks(r){if(r&&r.click){clearInterval(r.click.timer);try{r.click.out.disconnect()}catch(e){}}}
+function stopRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);
   try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}
   const len=r.chunks.reduce((s,c)=>s+c.length,0);const x=new Float32Array(len);let o=0;for(const c of r.chunks){x.set(c,o);o+=c.length}
   if(len<r.sr*1){toast('That was too short to catch anything.');show('home');return}
-  analyse(x,r.sr,'Hummed '+new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}));
+  const opt={};if(r.click&&isFinite(r.capStart)){opt.bpm=r.click.bpm;opt.metre=r.click.beats===3?'3/4':'4/4';const cx=AC;opt.grid={t0:r.click.downbeat-r.capStart,lat:Math.min(0.3,(cx.outputLatency||0)+(cx.baseLatency||0)+0.03)}}
+  analyse(x,r.sr,(SET.words?'Sung ':'Hummed ')+new Date().toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'}),opt);
 }
-function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}show('home')}
+function cancelRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);try{r.proc.disconnect();r.src.disconnect();r.stream.getTracks().forEach(t=>t.stop())}catch(e){}show('home')}
 
 // the live view: the note being hummed and a trail of the pitch
 function liveLoop(){const r=S.rec;if(!r)return;
@@ -601,7 +723,12 @@ function liveLoop(){const r=S.rec;if(!r)return;
   r.trail.push(midi);if(r.trail.length>240)r.trail.shift();
   const secs=(performance.now()-r.t0)/1000;
   $('#recTime').textContent=`${Math.floor(secs/60)}:${String(Math.floor(secs%60)).padStart(2,'0')}`;
-  $('#recNote').textContent=isNaN(midi)?'·':TC.noteName(Math.round(midi));
+  const ck=r.click,now=AC.currentTime;let counting=false;
+  if(ck){const b=Math.floor((now-ck.first)/ck.beat);counting=now<ck.downbeat;const bi=((b%ck.beats)+ck.beats)%ck.beats,frac=(now-ck.first)/ck.beat-b;
+    $$('#beatDots i').forEach((e,i)=>{e.classList.toggle('on',now>=ck.first&&i===bi&&frac<0.35);e.classList.toggle('one',i===0)})}
+  const rn=$('#recNote');rn.classList.toggle('count',counting);
+  if(counting){const b=Math.floor((now-ck.first)/ck.beat);rn.textContent=now<ck.first?'…':String(b+1)}
+  else rn.textContent=isNaN(midi)?'·':TC.noteName(Math.round(midi));
   $('#recLevel').style.transform=`scale(${1+Math.min(1,rms*8)*0.35})`;
   drawTrail(r.trail);requestAnimationFrame(liveLoop);
 }
@@ -619,7 +746,7 @@ async function openFile(f){if(!f)return;show('work');$('#workMsg').textContent='
   catch(e){toast('That file could not be read as audio.',4000);show('home')}}
 
 /* ---------- analysis ---------- */
-async function analyse(x,sr,title){
+async function analyse(x,sr,title,opt){opt=opt||{};
   show('work');$('#workMsg').textContent='Catching the notes…';
   S.audio={x,sr};
   await new Promise(r=>setTimeout(r,60));
@@ -628,15 +755,55 @@ async function analyse(x,sr,title){
     const s=off.createBufferSource();s.buffer=b;s.connect(off.destination);s.start();y=(await off.startRendering()).getChannelData(0)}
   // normalise
   let pk=0;for(let i=0;i<y.length;i++)pk=Math.max(pk,Math.abs(y[i]));if(pk>0&&pk<0.5){const g=0.5/pk;y=y.map(v=>v*g)}
-  const r=TC.transcribe(y);
+  S.y=y;const r=TC.transcribe(y,opt);
   if(!r.ok){S.failTitle=title;show('fail');return}
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
-  S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false};S.undo=[];S.sel=-1;
+  S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
   saveCur();openResult();
+  if(SET.words)listenWords();
 }
 
+/* ---------- words: a speech model on this device (Whisper base.en through Transformers.js, in a worker) ---------- */
+const WORKER=`let asr=null;
+self.onmessage=async e=>{try{
+  if(!asr){const T=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2');T.env.allowLocalModels=false;
+    asr=await T.pipeline('automatic-speech-recognition','onnx-community/whisper-base.en_timestamped',{dtype:{encoder_model:e.data.enc||'fp16',decoder_model_merged:'q8'},device:'wasm',
+      progress_callback:p=>self.postMessage({type:'progress',p:{status:p.status,file:p.file,loaded:p.loaded,total:p.total}})})}
+  self.postMessage({type:'listening'});
+  const r=await asr(e.data.audio,{return_timestamps:'word',chunk_length_s:30,stride_length_s:5,max_new_tokens:200});
+  self.postMessage({type:'done',text:r.text,words:(r.chunks||[]).map(c=>({w:c.text.trim(),s:c.timestamp[0],e:c.timestamp[1]==null?c.timestamp[0]+0.3:c.timestamp[1]}))});
+}catch(err){self.postMessage({type:'error',m:String(err&&err.message||err)})}};`;
+let W=null,wJob=null;
+function worker(){if(!W){W=new Worker(URL.createObjectURL(new Blob([WORKER],{type:'text/javascript'})),{type:'module'});W.onmessage=onWords}return W}
+const files={};
+let wDog=0;const dog=()=>{clearTimeout(wDog);wDog=setTimeout(()=>{if(!wJob)return;try{W.terminate()}catch(e){}W=null;onWords({data:{type:'done',words:[],timeout:true}})},150000)};
+function onWords(e){const d=e.data,st=$('#wordsStatus');if(d.type==='progress'||d.type==='listening')dog();else clearTimeout(wDog);
+  if(d.type==='progress'){const p=d.p;if(p.file&&p.total){files[p.file]=[p.loaded||0,p.total]}const L=Object.values(files).reduce((a,b)=>a+b[0],0),T=Object.values(files).reduce((a,b)=>a+b[1],0);
+    if(T>2e6&&L<T*0.999)st.textContent=`Getting the speech model… ${Math.round(L/1e6)} of ${Math.round(T/1e6)} MB`;else st.textContent='Starting the speech model…';return}
+  if(d.type==='listening'){st.textContent='Listening for the words…';return}
+  if(d.type==='error'){wJob=null;$('#wordsListen').disabled=false;st.textContent='';toast(navigator.onLine?'The words could not be recognised ('+d.m.slice(0,80)+').':'The speech model needs the internet the first time. Try again on Wi-Fi.',6000);return}
+  const job=wJob;if(!job||!S.cur||S.cur.id!==job.id){wJob=null;$('#wordsListen').disabled=false;return}
+  // the recogniser sometimes drops a line of a song (most of all a repeated one). The notes say how many syllables to expect:
+  // when it heard too few, listen again to the same singing a little differently, and keep the hearing that fits the notes best
+  const words=d.words.filter(w=>w.w).map(w=>({w:w.w,s:w.s+job.shift,e:w.e+job.shift}));const nsyl=TC.countSyllables(words),want=S.cur.song.ev.length;
+  const fit=Math.abs(nsyl-want)/Math.max(1,want);if(!job.best||fit<job.best.fit)job.best={words,fit};
+  if(!d.timeout&&nsyl<want*0.8&&job.tries<VARIANTS.length){dog();const v=VARIANTS[job.tries++](S.y,S.cur.notes);job.shift=v.shift;st.textContent='Listening again…';W.postMessage({audio:v.audio,enc:window.TC_ENC});return}
+  wJob=null;$('#wordsListen').disabled=false;const best=job.best.words;
+  if(!best.length){st.textContent='No words heard.';return}
+  S.cur.words=best;S.cur.wordsTyped=null;TC.setLyrics(S.cur.song.ev,best);saveCur();st.textContent='Check the words, correct them here, then “Put under the notes”.';$('#wordsText').value=TC.lyricsText(S.cur.song.ev);render()}
+const VARIANTS=[
+  y=>({audio:y.map(v=>v*0.5),shift:0}),
+  (y,notes)=>{const t=Math.max(0,(notes[0]?notes[0].t:0)-0.15),i=Math.floor(t*TC.SR);return {audio:y.slice(i),shift:i/TC.SR}},
+  (y,notes)=>{const t=Math.max(0,(notes[0]?notes[0].t:0)-0.15),i=Math.floor(t*TC.SR);return {audio:y.slice(i).map(v=>v*0.5),shift:i/TC.SR}},
+];
+function askWords(){return new Promise(res=>{const d=$('#wordsAsk');$('#wordsYes').onclick=()=>{d.close();SET.wordsOk=true;saveSet();res(true)};$('#wordsNo').onclick=()=>{d.close();res(false)};d.showModal()})}
+async function listenWords(){if(!S.cur||!S.y)return;if(!SET.wordsOk&&!(await askWords()))return;if(wJob)return;
+  wJob={id:S.cur.id,tries:0,shift:0,best:null};$('#wordsListen').disabled=true;$('#wordsStatus').textContent='Starting the speech model…';dog();worker().postMessage({audio:S.y,enc:window.TC_ENC})}
+function relyric(){const c=S.cur;if(c.words)TC.setLyrics(c.song.ev,c.words);else if(c.wordsTyped)TC.setLyricsInOrder(c.song.ev,c.wordsTyped)}
+
 /* ---------- the result ---------- */
-function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;syncControls();render()}
+function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;
+  $('#wordsListen').hidden=!S.y;$('#wordsStatus').textContent='';$('#wordsText').value=TC.lyricsText(S.cur.song.ev)||S.cur.wordsTyped||'';syncControls();render()}
 function syncControls(){const s=S.cur.song;
   $('#keySel').value=`${s.K.fifths}|${s.K.mode}`;$('#metreSel').value=s.metre;$('#clefSel').value=s.clef;$('#bpm').textContent=Math.round(s.bpm);
   $('#undo').disabled=!S.undo.length}
@@ -674,7 +841,8 @@ function setKey(v){const [f,m]=v.split('|');edit(s=>{s.K=TC.keyFromFifths(+f,m)}
 function setMetre(mt){edit(s=>{const p=TC.place(s.ev,mt);s.ev=p.ev;s.pickup=p.pickup;s.metre=mt})}
 function setTempo(bpm){bpm=Math.max(30,Math.min(260,Math.round(bpm)));const c=S.cur;
   if(c.edited&&!confirm('Changing the tempo works the rhythm out again from your humming, so your note edits will be lost (Undo brings them back). Go on?'))return;
-  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm});c.edited=false}
+  const grid=c.grid&&Math.abs(bpm-c.song.bpm)<0.5?c.grid:null;if(!grid)c.grid=null;
+  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre,grid});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm;relyric()});c.edited=false}
 function transposeAll(d){edit(s=>{for(const n of s.ev)n.k+=d;const f=((s.K.fifths+7*d)%12+12+6)%12-6;s.K=TC.keyFromFifths(f===6&&s.K.fifths<0?-6:f,s.K.mode)})}
 
 /* ---------- sound ---------- */
@@ -740,6 +908,16 @@ function init(){
   $('#trUp').onclick=()=>transposeAll(1);$('#trDown').onclick=()=>transposeAll(-1);
   $$('[data-export]').forEach(b=>b.onclick=()=>{$('#exportMenu').open=false;EXPORTS[b.dataset.export]()});
   $('#failSave').onclick=()=>saveHum(S.failTitle||'humming');$('#failAgain').onclick=startRec;$('#failHome').onclick=()=>show('home');
+  // home options
+  const cs=$('#clickSel');cs.value=String(SET.click);const showT=()=>{$('#clickTempo').hidden=!SET.click;$('#cBpm').textContent=SET.bpm};showT();
+  cs.onchange=()=>{SET.click=+cs.value;saveSet();showT()};
+  const bump=d=>{SET.bpm=Math.max(40,Math.min(200,SET.bpm+d));saveSet();showT();const ctx=ac();tick(ctx,ctx.currentTime+0.02,true,0.4,ctx.destination)};
+  $('#cSlower').onclick=()=>bump(-5);$('#cFaster').onclick=()=>bump(5);
+  const wc=$('#wordsChk');wc.checked=SET.words;wc.onchange=async()=>{if(wc.checked&&!SET.wordsOk&&!(await askWords())){wc.checked=false;return}SET.words=wc.checked;saveSet()};
+  // the words on the result page
+  $('#wordsListen').onclick=listenWords;
+  $('#wordsApply').onclick=()=>{const t=$('#wordsText').value.trim();edit(s=>{if(t){TC.setLyricsInOrder(s.ev,t)}});S.cur.wordsTyped=t||null;S.cur.words=null;saveCur();render()};
+  $('#wordsClear').onclick=()=>{edit(s=>{for(const n of s.ev){delete n.ly;delete n.syl;delete n.mel}});S.cur.words=null;S.cur.wordsTyped=null;$('#wordsText').value='';saveCur();render()};
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
   let rt=0;window.addEventListener('resize',()=>{if(S.view!=='result')return;clearTimeout(rt);rt=setTimeout(render,200)});
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#catch').disabled=true;$('#noMic').hidden=false}
@@ -748,7 +926,7 @@ function init(){
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 // for tests
-window.TCAPP={S,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
+window.TCAPP={S,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
 </script>
 </body>
