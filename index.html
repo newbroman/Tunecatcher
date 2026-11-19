@@ -139,6 +139,11 @@ dialog li{margin:.4em 0}
 #ckTable{width:100%;border-collapse:collapse;font-size:.88rem;margin-top:6px}#ckTable td,#ckTable th{padding:.3em .2em;text-align:left;border-top:1px solid var(--ink3)}#ckTable th{color:var(--dim);font-weight:500;border-top:0}
 .takes{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 6px 1.2em}.takes button{padding:.2em .55em;font-size:.78rem;background:var(--ink3)}
 #phraseList li{flex-wrap:wrap}#phraseList .takes{flex-basis:100%}
+
+#tabText{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;line-height:1.3;overflow-x:auto;background:var(--ink3);border-radius:10px;padding:10px;margin:8px 0 0;white-space:pre}
+#tabBox .tempo{margin-top:8px}#tabBox input[type=range]{flex:2;accent-color:var(--amber)}#tabBox .wordshead button{padding:.35em .7em;font-size:.82rem}
+.chips.live{min-height:2em;justify-content:flex-start;margin:6px 0}.chips.live span{background:var(--ink3);color:var(--text)}
+@media print{#tabBox{display:none!important}}
 </style>
 </head>
 <body>
@@ -171,6 +176,7 @@ dialog li{margin:.4em 0}
   <div id="recNote" class="bignote">·</div>
   <div id="beatDots" class="beats" hidden></div>
   <canvas id="trail"></canvas>
+  <div id="liveNotes" class="chips live"></div>
   <div id="recTime" class="time">0:00</div>
   <p class="tip">Hum on “mm” or “da”. Give repeated notes a little gap.</p>
   <div class="row"><button id="cancel" class="ghost">Cancel</button><button id="stop" class="primary">■ Done</button></div>
@@ -217,6 +223,11 @@ dialog li{margin:.4em 0}
   </div>
   <div class="row play"><button id="play" class="primary">▶ Play</button><button id="playRec" class="secondary">▶ My humming</button><button id="undo" class="ghost" disabled>↶ Undo</button></div>
   <p class="hint">Tap a note to fix it.</p>
+  <div id="tabBox" class="wordsbox" hidden>
+    <div class="wordshead"><b>Guitar tab</b><button id="copyTab" class="secondary">Copy tab</button></div>
+    <div class="tempo"><span>Fret position</span><input type="range" id="posInput" min="0" max="12" value="0"><b id="posVal">Open</b></div>
+    <pre id="tabText"></pre>
+  </div>
   <div id="phraseBox" class="wordsbox">
     <div class="wordshead"><b>Phrases</b><span>Sing a phrase again to make it surer</span></div>
     <ul id="phraseList"></ul>
@@ -797,6 +808,18 @@ function calibrate(tracks,from){
   return {params:out,before:base,after,notes:tracks.reduce((q,t)=>q+t.truth.length,0)}}
 function useParams(o){Object.assign(PARAMS,DEFAULTS,o||{})}
 
+/* ---------- guitar tab as text (standard tuning), around a chosen fret position ---------- */
+const GTR=[64,59,55,50,45,40],GNAME=['e','B','G','D','A','E'];
+function fretFor(k,pos){let m=k;while(m<40)m+=12;while(m>84)m-=12;let best=null;
+  for(let st=0;st<6;st++){const f=m-GTR[st];if(f<0||f>20)continue;const cost=Math.abs(f-pos)+(pos===0&&f===0?-0.5:0);if(!best||cost<best.cost)best={st,f,cost}}return best}
+function textTab(song,pos){pos=pos||0;const B=bars(song.ev,song.metre,song.pickup),blocks=[];let lines=GNAME.map(n=>n+'|-'),nb=0;
+  const flush=()=>{if(nb){lines=lines.map(l=>l.replace(/\|-$/,'|'));blocks.push(lines.join('\n'));lines=GNAME.map(n=>n+'|-');nb=0}};
+  B.forEach((bar,bi)=>{let any=false;for(const it of bar.items){if(it.rest||it.tieIn)continue;const b=fretFor(it.k,pos),t=String(b.f),w=t.length+2;any=true;
+      for(let st=0;st<6;st++)lines[st]+=st===b.st?t+'--':'-'.repeat(w)}
+    if(!any)for(let st=0;st<6;st++)lines[st]+='---';
+    for(let st=0;st<6;st++)lines[st]+=bi===B.length-1?'|':'|-';nb++;if(nb===4)flush()});
+  flush();return blocks.join('\n\n')}
+
 /* ---------- the whole way: samples → song ---------- */
 function transcribe(x,opt){
   opt=opt||{};
@@ -817,7 +840,7 @@ function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);con
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,PARAMS,removeTake,addPart,tuneMatch,TUNES,tuneScore,calibrate,useParams,DEFAULTS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,textTab,fretFor,removeTake,addPart,tuneMatch,TUNES,tuneScore,calibrate,useParams,DEFAULTS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
@@ -875,7 +898,7 @@ async function startRec(){
     S.rec.click.out.connect(ctx.destination);scheduleClicks();S.rec.click.timer=setInterval(scheduleClicks,40);
     $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
   else $('#beatDots').hidden=true;
-  show('rec');liveLoop();
+  $('#liveNotes').innerHTML='';show('rec');liveLoop();
 }
 function tick(ctx,t,accent,vol,dest){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=accent?1760:1175;o.type='sine';
   g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+0.002);g.gain.exponentialRampToValueAtTime(0.0001,t+0.05);o.connect(g);g.connect(dest);o.start(t);o.stop(t+0.06)}
@@ -907,6 +930,12 @@ function liveLoop(){const r=S.rec;if(!r)return;
   if(rms>0.008&&y.length>=need){const d=new Float32Array(need),c=new Float32Array(need);const p=TC.yinFrame(y,0,Math.floor(TC.SR/TC.FMAX),Math.ceil(TC.SR/TC.FMIN),d,c);
     if(p.conf>0.6&&p.f>TC.FMIN&&p.f<TC.FMAX)midi=TC.hz2m(p.f)}
   r.trail.push(midi);if(r.trail.length>240)r.trail.shift();
+  // a rough running list of the notes as they are hummed (the proper working-out happens at the end)
+  const L=r.live||(r.live={recent:[],cur:null,n:0,list:[]}),tn=performance.now();
+  if(!isNaN(midi)&&!(r.click&&AC.currentTime<r.click.downbeat)){L.recent.push(Math.round(midi));if(L.recent.length>5)L.recent.shift();const st=[...L.recent].sort((a,b)=>a-b)[L.recent.length>>1];
+    if(L.cur&&L.cur.k===st)L.cur.seen=tn;else{L.cur={k:st,t0:tn,seen:tn,shown:false}}
+    if(L.cur&&!L.cur.shown&&tn-L.cur.t0>=130){L.cur.shown=true;L.list.push(st);const e=document.createElement('span');e.textContent=TC.noteName(st);const box=$('#liveNotes');box.appendChild(e);while(box.children.length>14)box.firstChild.remove()}}
+  else if(L.cur&&tn-L.cur.seen>95){L.cur=null;L.recent=[]}
   const secs=(performance.now()-r.t0)/1000;
   $('#recTime').textContent=`${Math.floor(secs/60)}:${String(Math.floor(secs%60)).padStart(2,'0')}`;
   const ck=r.click,now=AC.currentTime;let counting=false;
@@ -1038,16 +1067,17 @@ function render(){
   const w=Math.min(900,$('#paper').clientWidth-16);
   S.visual=ABCJS.renderAbc('paper',abc,{responsive:'resize',add_classes:true,staffwidth:w,paddingleft:0,paddingright:0,paddingtop:6,
     // abcjs draws no tablature when it wraps lines itself; the ABC already breaks every four bars
-    ...(SET.tab==='guitar'?{tablature:[{instrument:'guitar',label:'',tuning:['E,,','A,,','D,','G,','B,','E'],capo:0}]}:{wrap:{minSpacing:1.6,maxSpacing:2.6,preferredMeasuresPerLine:4}}),
+    ...(SET.tab==='guitar'&&!(SET.pos>0)?{tablature:[{instrument:'guitar',label:'',tuning:['E,,','A,,','D,','G,','B,','E'],capo:0}]}:{wrap:{minSpacing:1.6,maxSpacing:2.6,preferredMeasuresPerLine:4}}),
     clickListener:(el)=>{if(el.el_type!=='note'){select(-1);return}const st=el.startChar;let m=null,bd=3;for(const q of map){const d=st>=q[0]&&st<q[1]?0:Math.abs(q[0]-st);if(d<bd){bd=d;m=q}}if(m)select(m[2]);else select(-1)}})[0];
   s.ev.forEach((n,i)=>{if(n.un)for(const a of elsFor(i))(a.elemset||[]).forEach(e=>e.classList&&e.classList.add('tc-unsure'))});
   if(S.sel>=0)mark(S.sel);
-  renderPhrases();
+  renderPhrases();renderTab();
   $('#meta').textContent=`${s.K.name} · ${s.metre} · ${Math.round(s.bpm)} bpm · ${s.ev.length} notes`+(s.offsetCents?` · sung ${s.offsetCents>0?'+':''}${s.offsetCents} cents from A440`:'');
   $('#editBar').hidden=S.sel<0;
   if(S.sel>=0){const n=s.ev[S.sel];$('#selName').textContent=spelt(n.k)}
 }
 const spelt=k=>{const [st,al,oc]=TC.spell(k,S.cur.song.K.fifths);return st+(al===1?'♯':al===-1?'♭':'')+oc};
+function renderTab(){const on=SET.tab==='guitar';$('#tabBox').hidden=!on;if(!on)return;const pos=SET.pos||0;$('#posInput').value=pos;$('#posVal').textContent=pos?'Fret '+pos:'Open';$('#tabText').textContent=TC.textTab(S.cur.song,pos)}
 function elsFor(i){const out=[];for(const m of S.map)if(m[2]===i){const e=S.visual&&S.visual.getElementFromChar(m[0]);if(e&&e.abselem)out.push(e.abselem)}return out}
 function mark(i){$$('#paper .tc-sel').forEach(e=>e.classList.remove('tc-sel'));for(const a of elsFor(i))(a.elemset||[]).forEach(e=>e.classList&&e.classList.add('tc-sel'))}
 function select(i){S.sel=i;$('#editBar').hidden=i<0;mark(i);if(i>=0){const n=S.cur.song.ev[i];$('#selName').textContent=spelt(n.k);beep(n.k,0.35)}}
@@ -1144,6 +1174,8 @@ function init(){
   $('#keySel').onchange=e=>setKey(e.target.value);
   $('#metreSel').onchange=e=>setMetre(e.target.value);
   $('#clefSel').onchange=e=>edit(s=>{s.clef=e.target.value});
+  $('#posInput').oninput=e=>{const was=SET.pos>0;SET.pos=+e.target.value;saveSet();if(was!==(SET.pos>0))render();else renderTab()};
+  $('#copyTab').onclick=async()=>{const t=(S.cur.title?S.cur.title+'\n\n':'')+$('#tabText').textContent;try{await navigator.clipboard.writeText(t);toast('Tab copied')}catch(e){give(new Blob([t],{type:'text/plain'}),safe(S.cur.title)+'_tab.txt')}};
   $('#tabSel').value=SET.tab||'';$('#tabSel').onchange=e=>{SET.tab=e.target.value;saveSet();render();const lo=Math.min(...S.cur.song.ev.map(n=>n.k));if(SET.tab&&lo<40)toast('Some notes are below the guitar’s lowest string. Use Transpose + to bring the tune up.',5000)};
   $('#slower').onclick=()=>setTempo(S.cur.song.bpm-4);$('#faster').onclick=()=>setTempo(S.cur.song.bpm+4);
   $('#half').onclick=()=>setTempo(S.cur.song.bpm/2);$('#double').onclick=()=>setTempo(S.cur.song.bpm*2);
