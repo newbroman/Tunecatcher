@@ -231,6 +231,7 @@ dialog li{margin:.4em 0}
     <label>Key<select id="keySel"></select></label>
     <label>Time<select id="metreSel"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
     <label>Clef<select id="clefSel"><option value="treble">Treble</option><option value="treble-8">Treble, octave lower</option><option value="bass">Bass</option></select></label>
+    <label>Tab<select id="tabSel"><option value="">Off</option><option value="guitar">Guitar</option></select></label>
     <div class="tempo"><span>Tempo</span><button id="half" aria-label="Half the tempo">½</button><button id="slower" aria-label="Slower">−</button><b id="bpm">100</b><button id="faster" aria-label="Faster">+</button><button id="double" aria-label="Double the tempo">×2</button></div>
     <div class="tempo"><span>Transpose</span><button id="trDown" aria-label="Down a semitone">−</button><button id="trUp" aria-label="Up a semitone">+</button></div>
   </div>
@@ -331,7 +332,7 @@ function voicing(tr){
 }
 function tuningOf(m,v){let sx=0,sy=0;for(let i=0;i<m.length;i++){if(isNaN(m[i])||v[i]<0.4)continue;const a=2*Math.PI*(m[i]-Math.round(m[i]));sx+=Math.cos(a)*v[i];sy+=Math.sin(a)*v[i]}
   return (sx||sy)?Math.atan2(sy,sx)/(2*Math.PI):0}
-const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
+const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,GRACE:0,SAME:0,GRACEUP:2,RISE:0.5,QUIET:0.7,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
 function viterbi(m,v,off,lo,hi,scale){
   const n=m.length,N=hi-lo+1,S=N+1;   // state 0 silence, 1..N pitches lo..hi
   const {SIG,CAP,P_CHANGE,P_ON,P_OFF,P_SCALE}=PARAMS;
@@ -373,7 +374,7 @@ function syllables(env,gate,m){const n=env.length,cuts=[];let i=0;
   return cuts}
 function runsToNotes(path,m,v,rms,syl){
   const notes=[];
-  for(let [a,b] of syl){while(a<b&&!(v[a]>0.3))a++;while(b>a&&!(v[b-1]>0.3))b--;if(b-a<PARAMS.MIN)continue;
+  let sy=0;for(let [a,b] of syl){sy++;while(a<b&&!(v[a]>0.3))a++;while(b>a&&!(v[b-1]>0.3))b--;if(b-a<PARAMS.MIN)continue;
     // runs of the note path inside the syllable
     const runs=[];for(let i=a;i<b;){const k=path[i];let j=i;while(j<b&&path[j]===k)j++;if(k>=0)runs.push({a:i,b:j,k});i=j}
     // short runs are slides: they go to their longer neighbour
@@ -389,7 +390,14 @@ function runsToNotes(path,m,v,rms,syl){
     for(const r of runs){let loud=0;const fr=[];for(let i=r.a;i<r.b;i++){loud=Math.max(loud,rms[i]);if(!isNaN(m[i]))fr.push(m[i])}
       // the pitch the singer settles on: the later part of the note, past any scoop
       const late=fr.slice(Math.floor(fr.length*0.4));const mm=r.mm!=null?r.mm:(late.length?median(late):r.k);
-      notes.push({t:r.a/FPS,d:(r.b-r.a)/FPS,k:r.k,m:mm,v:loud,late:runs.length===1})}}
+      const th=Math.max(1,Math.floor(fr.length/3)),sl=fr.length>=4?median(fr.slice(-th))-median(fr.slice(0,th)):0;
+      notes.push({t:r.a/FPS,d:(r.b-r.a)/FPS,k:r.k,m:mm,v:loud,sl,sy,late:runs.length===1})}}
+  return notes}
+// a short note just under the note that follows it straight away is the voice sliding up into that note, not a note of its own
+function foldScoops(notes,off){for(let i=0;i<notes.length-1;i++){const a=notes[i],b=notes[i+1];const up=b.k-a.k;
+    // inside one syllable, two pieces less than about a semitone apart are one wavering note
+    if(a.sy===b.sy&&Math.abs(a.m-b.m)<PARAMS.SAME){const L=a.d>=b.d?a:b,m=(a.m*a.d+b.m*b.d)/(a.d+b.d);a.d=b.t+b.d-a.t;a.m=m;a.k=Math.abs(m-off-L.k)<0.75?L.k:Math.round(m-off);a.v=Math.max(a.v,b.v);notes.splice(i+1,1);i--;continue}
+    if(a.d<PARAMS.GRACE&&(a.sl>=PARAMS.RISE||a.v<PARAMS.QUIET*b.v)&&b.t-(a.t+a.d)<0.06&&up>=1&&up<=PARAMS.GRACEUP&&b.d>=a.d){b.d=b.t+b.d-a.t;b.t=a.t;b.v=Math.max(a.v,b.v);notes.splice(i,1);i--}}
   return notes}
 function fillK(notes,off,sc){for(const nt of notes){if(nt.k==null||nt.late){const x=nt.m-off;let k=Math.round(x);
     // in the second pass, a note just off the scale goes to the nearer scale note
@@ -402,14 +410,14 @@ function segment(tr){
   const off=tuningOf(m,v);const lo=Math.floor(pct(vals,0.01)-off)-2,hi=Math.ceil(pct(vals,0.99)-off)+2;
   const env=new Float32Array(n);for(let i=0;i<n;i++){let s=0,c=0;for(let k=-1;k<=1;k++)if(i+k>=0&&i+k<n){s+=rms[i+k];c++}env[i]=s/c}
   const peak=pct(rms,0.98)||1e-3,floor=pct(rms,0.05);const gate=Math.max(peak*PARAMS.GATE,floor*2.5);const syl=syllables(env,gate,m);
-  let notes=fillK(runsToNotes(viterbi(m,v,off,lo,hi,null),m,v,rms,syl),off);
+  let notes=foldScoops(fillK(runsToNotes(viterbi(m,v,off,lo,hi,null),m,v,rms,syl),off),off);
   // a short note an octave away from both neighbours is an octave slip
   for(let i=0;i<notes.length;i++){const nt=notes[i];if(nt.d>0.25)continue;const nb=[notes[i-1],notes[i+1]].filter(Boolean);if(!nb.length)continue;
     for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
   // second pass: lean towards the key found in the first
   if(notes.length>=4){const K=key(notes.map(x=>({k:x.k,s:0,e:Math.max(1,Math.round(x.d*8))})));if(K.c<PARAMS.KEYC)return finish(notes,off);
     const sc=new Array(12).fill(false);const steps=K.mode==='major'?[0,2,4,5,7,9,11]:[0,2,3,5,7,8,10,11];for(const st of steps)sc[(K.pc+st)%12]=true;
-    const p2=viterbi(m,v,off,lo,hi,sc);const n2=fillK(runsToNotes(p2,m,v,rms,syl),off,sc);
+    const p2=viterbi(m,v,off,lo,hi,sc);const n2=foldScoops(fillK(runsToNotes(p2,m,v,rms,syl),off,sc),off);
     for(let i=0;i<n2.length;i++){const nt=n2[i];if(nt.d>0.25)continue;const nb=[n2[i-1],n2[i+1]].filter(Boolean);if(!nb.length)continue;
       for(const sh of [12,-12,24,-24]){const k2=nt.k-sh;if(nb.every(q=>Math.abs(q.k-nt.k)>=9&&Math.abs(q.k-k2)<=7)){nt.k=k2;nt.m-=sh;break}}}
     notes=n2}
@@ -1029,7 +1037,8 @@ function render(){
   const s=S.cur.song;const {abc,map}=TC.toABC(s,{title:''});S.map=map;S.abc=abc;
   const w=Math.min(900,$('#paper').clientWidth-16);
   S.visual=ABCJS.renderAbc('paper',abc,{responsive:'resize',add_classes:true,staffwidth:w,paddingleft:0,paddingright:0,paddingtop:6,
-    wrap:{minSpacing:1.6,maxSpacing:2.6,preferredMeasuresPerLine:4},
+    // abcjs draws no tablature when it wraps lines itself; the ABC already breaks every four bars
+    ...(SET.tab==='guitar'?{tablature:[{instrument:'guitar',label:'',tuning:['E,,','A,,','D,','G,','B,','E'],capo:0}]}:{wrap:{minSpacing:1.6,maxSpacing:2.6,preferredMeasuresPerLine:4}}),
     clickListener:(el)=>{if(el.el_type!=='note'){select(-1);return}const st=el.startChar;let m=null,bd=3;for(const q of map){const d=st>=q[0]&&st<q[1]?0:Math.abs(q[0]-st);if(d<bd){bd=d;m=q}}if(m)select(m[2]);else select(-1)}})[0];
   s.ev.forEach((n,i)=>{if(n.un)for(const a of elsFor(i))(a.elemset||[]).forEach(e=>e.classList&&e.classList.add('tc-unsure'))});
   if(S.sel>=0)mark(S.sel);
@@ -1135,6 +1144,7 @@ function init(){
   $('#keySel').onchange=e=>setKey(e.target.value);
   $('#metreSel').onchange=e=>setMetre(e.target.value);
   $('#clefSel').onchange=e=>edit(s=>{s.clef=e.target.value});
+  $('#tabSel').value=SET.tab||'';$('#tabSel').onchange=e=>{SET.tab=e.target.value;saveSet();render();const lo=Math.min(...S.cur.song.ev.map(n=>n.k));if(SET.tab&&lo<40)toast('Some notes are below the guitar’s lowest string. Use Transpose + to bring the tune up.',5000)};
   $('#slower').onclick=()=>setTempo(S.cur.song.bpm-4);$('#faster').onclick=()=>setTempo(S.cur.song.bpm+4);
   $('#half').onclick=()=>setTempo(S.cur.song.bpm/2);$('#double').onclick=()=>setTempo(S.cur.song.bpm*2);
   $('#trUp').onclick=()=>transposeAll(1);$('#trDown').onclick=()=>transposeAll(-1);
