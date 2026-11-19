@@ -144,6 +144,9 @@ dialog li{margin:.4em 0}
 #tabBox .tempo{margin-top:8px}#tabBox input[type=range]{flex:2;accent-color:var(--amber)}#tabBox .wordshead button{padding:.35em .7em;font-size:.82rem}
 .chips.live{min-height:2em;justify-content:flex-start;margin:6px 0}.chips.live span{background:var(--ink3);color:var(--text)}
 @media print{#tabBox{display:none!important}}
+
+.tappad{display:block;width:100%;height:120px;font-size:1.6rem;font-weight:700;background:var(--amber);color:#201703;border-radius:16px;margin:8px 0 2px;touch-action:manipulation;user-select:none}
+.tappad:disabled{background:var(--ink3);color:var(--dim)}.tappad.hit{filter:brightness(1.35)}
 </style>
 </head>
 <body>
@@ -244,6 +247,7 @@ dialog li{margin:.4em 0}
     <label>Clef<select id="clefSel"><option value="treble">Treble</option><option value="treble-8">Treble, octave lower</option><option value="bass">Bass</option></select></label>
     <label>Tab<select id="tabSel"><option value="">Off</option><option value="guitar">Guitar</option></select></label>
     <div class="tempo"><span>Tempo</span><button id="half" aria-label="Half the tempo">½</button><button id="slower" aria-label="Slower">−</button><b id="bpm">100</b><button id="faster" aria-label="Faster">+</button><button id="double" aria-label="Double the tempo">×2</button></div>
+    <div class="tempo" id="tapRow"><span>Beat wrong?</span><button id="tapBtn">Tap the beat…</button></div>
     <div class="tempo"><span>Transpose</span><button id="trDown" aria-label="Down a semitone">−</button><button id="trUp" aria-label="Up a semitone">+</button></div>
   </div>
   <div class="row">
@@ -271,10 +275,19 @@ dialog li{margin:.4em 0}
     <li>Tap ■ Done. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
     <li>Sing the whole song once. Then, under <i>Phrases</i>, sing any phrase again, as many times as you like, in any key: Tunecatcher lines the takes up and keeps what most of them agree on.</li>
     <li>A long song can be built in parts: sing the first part, then <i>Add the next part</i> and sing on from there. Each part joins the end of the song.</li>
+    <li>If the beat comes out wrong, use <i>Tap the beat</i>: your recording plays and you tap along. The bars and note lengths then follow your taps.</li>
     <li>Wrong time or a rhythm that looks twice too fast or slow? Change Time, or use ½ and ×2.</li>
   </ol>
   <p>Your humming never leaves the phone. Catches are kept on this device only.</p>
   <button id="helpClose" class="primary">Got it</button>
+</dialog>
+<dialog id="tapDlg">
+  <h2>Tap the beat</h2>
+  <p>Your recording will play. Tap the pad on every beat, like tapping your foot. <b>Start on a strong beat</b> (a “ONE”): if the tune begins with a lead-in, let it go by and start on the first strong beat.</p>
+  <p class="tip">Check <i>Time</i> is right first (3/4 for a waltz). Space bar works too.</p>
+  <button id="tapPad" class="tappad" disabled>TAP</button>
+  <p id="tapCount" class="tip">&nbsp;</p>
+  <div class="row"><button id="tapCancel" class="ghost">Cancel</button><button id="tapStart" class="secondary">▶ Start</button><button id="tapDone" class="primary" disabled>Use these beats</button></div>
 </dialog>
 <dialog id="wordsAsk">
   <h2>Write the words?</h2>
@@ -343,7 +356,7 @@ function voicing(tr){
 }
 function tuningOf(m,v){let sx=0,sy=0;for(let i=0;i<m.length;i++){if(isNaN(m[i])||v[i]<0.4)continue;const a=2*Math.PI*(m[i]-Math.round(m[i]));sx+=Math.cos(a)*v[i];sy+=Math.sin(a)*v[i]}
   return (sx||sy)?Math.atan2(sy,sx)/(2*Math.PI):0}
-const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,GRACE:0,SAME:0,GRACEUP:2,RISE:0.5,QUIET:0.7,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,REST:4,FINE:0.1};
+const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,GRACE:0,SAME:0,GRACEUP:2,RISE:0.5,QUIET:0.7,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,MODEW:0.2,PHW:0,DOWN:1.25,REST:4,FINE:0.1};
 function viterbi(m,v,off,lo,hi,scale){
   const n=m.length,N=hi-lo+1,S=N+1;   // state 0 silence, 1..N pitches lo..hi
   const {SIG,CAP,P_CHANGE,P_ON,P_OFF,P_SCALE}=PARAMS;
@@ -441,12 +454,20 @@ function tempo(notes){
   const on=notes.map(n=>n.t);if(on.length<3)return {beat:0.6,conf:0};
   const iois=[];for(let i=1;i<on.length;i++){iois.push([on[i]-on[i-1],1]);if(i>1)iois.push([on[i]-on[i-2],0.5])}
   const gaps=[];for(let i=1;i<on.length;i++)gaps.push(on[i]-on[i-1]);const mg=median(gaps);
+  // the commonest gap between notes, weighted by its length: in most tunes that is the beat (a singer's loose dotted
+  // rhythms otherwise make a tempo half as fast again fit just as well)
+  let mode=mg,ms=-1;const mgaps=gaps.filter(g=>g<mg*2.6);for(const c of mgaps){let sc=0;for(const g of mgaps){const d=Math.log2(g/c)/0.13;sc+=Math.exp(-d*d/2)*g}if(sc>ms){ms=sc;mode=c}}
+  {let sw=0,sx=0;for(const g of mgaps){const d=Math.log2(g/mode)/0.13,w=Math.exp(-d*d/2);sw+=w;sx+=w*Math.log2(g)}mode=Math.pow(2,sx/sw)}
+  while(mode<0.3)mode*=2;while(mode>1.2)mode/=2;
+  // phrases (a note after a silence) tend to start a whole number of beats apart
+  const ps=[notes[0].t];for(let i=1;i<notes.length;i++)if(notes[i].t-(notes[i-1].t+notes[i-1].d)>0.3)ps.push(notes[i].t);const pg=ps.slice(1).map((t,i)=>t-ps[i]).filter(g=>g>1.2);
   let best=null;
   for(let p=0.28;p<=1.3;p*=1.002){
+    let ph=0;for(const g of pg){const u=g/p,e=u-Math.round(u);ph+=e*e}if(pg.length)ph/=pg.length;
     let cost=0,wt=0;for(const [d,w] of iois){const u=d/p*4;const r=Math.max(1,Math.round(u));const e=(u-r)/Math.max(1,Math.sqrt(r)/1.5);
       cost+=w*(e*e+(r%2&&r>1?PARAMS.ODD:0)+(r===1?0.02:0)+PARAMS.QW*Math.pow(Math.log2(r/4),2));wt+=w}
     cost/=wt;
-    const out=p<0.29?Math.log2(0.29/p):p>1?Math.log2(p):0;const s=cost+out*out*0.3+Math.pow(Math.log2(p/0.6),2)*PARAMS.PRIOR+Math.pow(Math.log2(p/mg),2)*PARAMS.MEDW;   // a flat band from 60 to 205 bpm, gently centred on 100
+    const out=p<0.29?Math.log2(0.29/p):p>1?Math.log2(p):0;const s=cost+out*out*0.3+Math.pow(Math.log2(p/0.6),2)*PARAMS.PRIOR+Math.pow(Math.log2(p/mg),2)*PARAMS.MEDW+Math.pow(Math.log2(p/mode),2)*PARAMS.MODEW+ph*PARAMS.PHW;   // a flat band from 60 to 205 bpm, gently centred on 100
     if(!best||s<best.s)best={s,p,cost}}
   return {beat:best.p,conf:Math.max(0,1-best.cost*8)};
 }
@@ -489,12 +510,31 @@ function quantiseGrid(notes,beat,metre,t0,lat0){
   const sh=-Math.floor(q[0].s/L)*L;for(const n of q){n.s+=sh;n.e+=sh;delete n.dur}
   const p0=q[0].s%L;return {ev:q,pickup:p0?L-p0:0,len:q[q.length-1].e,t0};
 }
+// with a tapped beat: the user taps along to their own recording, starting on a strong beat. The taps are the beats, so the
+// tempo may wander with the singer; the first tap is beat one of a bar.
+function quantiseBeats(notes,taps,metre){
+  taps=taps.slice().sort((a,b)=>a-b);if(taps.length<3||!notes.length)return null;
+  const df=taps.slice(1).map((t,i)=>t-taps[i]),med=median(df);
+  // a missed tap leaves a double gap: fill it; then carry the beat on before the first tap and after the last
+  let B=[taps[0]];for(let i=1;i<taps.length;i++){const g=taps[i]-taps[i-1],k=Math.max(1,Math.round(g/med));for(let j=1;j<=k;j++)B.push(taps[i-1]+g*j/k)}
+  let i0=0;const first=notes[0].t,lastN=notes[notes.length-1],end=lastN.t+lastN.d;
+  while(B[0]>first-med){B.unshift(B[0]-(B[1]-B[0]));i0++}while(B[B.length-1]<end+med)B.push(B[B.length-1]+(B[B.length-1]-B[B.length-2]));
+  const posAt=t=>{let i=0;while(i<B.length-2&&B[i+1]<=t)i++;return (i-i0+(t-B[i])/(B[i+1]-B[i]))*4};
+  // taps run a little ahead of or behind the voice by a steady amount: the shift that puts most notes on the eighths
+  let bl=0,bs=-1e9;for(let lat=-0.12;lat<=0.2;lat+=0.004){let sc=0;for(const n of notes)sc+=Math.cos(2*Math.PI*posAt(n.t-lat)/2);sc=sc/notes.length-0.5*Math.pow(lat/0.15,2);if(sc>bs){bs=sc;bl=lat}}
+  const c=med/4<PARAMS.FINE?2:1,M=METRES[metre],L=M.len,q=[];
+  for(const n of notes){let st=Math.round(posAt(n.t-bl)/c)*c;if(q.length&&st<=q[q.length-1].s)st=q[q.length-1].s+c;q.push({k:n.k,vel:n.vel,s:st,dur:n.d,t:n.t})}
+  for(let i=0;i<q.length;i++){const n=q[i],nx=q[i+1];const held=Math.max(c,Math.round((posAt(n.t-bl+n.dur)-posAt(n.t-bl))/c)*c);
+    if(!nx){n.e=n.s+held;const rem=(M.beat-(n.e%M.beat)+L*8)%M.beat;if(rem&&held<M.beat*2)n.e+=rem;continue}
+    n.e=nx.s-(n.s+held)>=PARAMS.REST?n.s+held:nx.s}
+  const sh=-Math.floor(q[0].s/L)*L;for(const n of q){n.s+=sh;n.e+=sh;delete n.dur}
+  const p0=q[0].s%L;return {ev:q,pickup:p0?L-p0:0,bpm:60/med}}
 // where the bar lines go: the shift that puts the longest notes on the strongest beats (positions taken from the first note)
 function place(evIn,metre){
   const z=evIn.length?evIn[0].s:0;const q=evIn.map(n=>({...n,s:n.s-z,e:n.e-z}));
   const M=METRES[metre],bar=M.len;let bestOff=0,bestS=-1;
   for(let off=0;off<bar;off+=(M.beat)){let s=0;for(const n of q){const pos=(n.s+off)%bar;s+=(M.w[pos]||0)*Math.pow(Math.min(8,n.e-n.s),1.3)}
-    if(off===0)s*=1.25;                                          // tunes tend to start on the downbeat
+    if(off===0)s*=PARAMS.DOWN;                                          // tunes tend to start on the downbeat
     if(s>bestS+1e-9){bestS=s;bestOff=off}}
   const ev=q.map(n=>{const o={...n,s:n.s+bestOff,e:n.e+bestOff};delete o.g;delete o.dur;return o});
   return {ev,off:bestOff,pickup:bestOff?bar-bestOff:0,score:bestS};
@@ -840,7 +880,7 @@ function requantise(notes,o){const metre=o.metre||guessMetre(notes,60/o.bpm);con
 const NAMES=['C','C♯','D','E♭','E','F','F♯','G','A♭','A','B♭','B'];
 const noteName=k=>NAMES[((k%12)+12)%12]+(Math.floor(k/12)-1);
 
-G.TC={SR,PARAMS,textTab,fretFor,removeTake,addPart,tuneMatch,TUNES,tuneScore,calibrate,useParams,DEFAULTS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
+G.TC={SR,PARAMS,quantiseBeats,textTab,fretFor,removeTake,addPart,tuneMatch,TUNES,tuneScore,calibrate,useParams,DEFAULTS,ensurePhrases,phrasesOf,phrasesFromWords,consensus,addTake,place,quantiseGrid,syllabify,countSyllables,setLyrics,setLyricsInOrder,lyricsText,track,yinFrame,segment,tempo,quantise,guessMetre,key,keyFromFifths,spell,toABC,toMIDI,toMusicXML,transcribe,requantise,METRES,noteName,hz2m,median,W,FMIN,FMAX};
 })(typeof window!=='undefined'?window:globalThis);
 </script>
 <script>/* Tunecatcher app: record or open audio, catch the tune, show it as sheet music, play it, edit it, export it. */
@@ -1058,7 +1098,7 @@ function relyric(){const c=S.cur;if(c.words)TC.setLyrics(c.song.ev,c.words);else
 
 /* ---------- the result ---------- */
 function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;
-  $('#wordsListen').hidden=!S.y;$('#wordsStatus').textContent='';$('#wordsText').value=TC.lyricsText(S.cur.song.ev)||S.cur.wordsTyped||'';syncControls();render()}
+  $('#wordsListen').hidden=!S.y;$('#tapRow').hidden=!S.audio;$('#wordsStatus').textContent='';$('#wordsText').value=TC.lyricsText(S.cur.song.ev)||S.cur.wordsTyped||'';syncControls();render()}
 function syncControls(){const s=S.cur.song;
   $('#keySel').value=`${s.K.fifths}|${s.K.mode}`;$('#metreSel').value=s.metre;$('#clefSel').value=s.clef;$('#bpm').textContent=Math.round(s.bpm);
   $('#undo').disabled=!S.undo.length}
@@ -1135,6 +1175,21 @@ function playRec(){if(S.playing){const was=S.playing.kind;stopPlay();if(was==='r
   const out=ctx.createGain();src.connect(out);out.connect(ctx.destination);src.start();const P={kind:'rec',nodes:[src],out,raf:0};S.playing=P;$('#playRec').textContent='■ Stop';
   src.onended=()=>{if(S.playing===P)stopPlay()}}
 
+/* ---------- tap the beat: the recording plays, the user taps along ---------- */
+const TAP={taps:[],src:null,t0:0};
+function tapOpen(){if(!S.audio){toast('The recording is only kept until you leave the song.');return}stopPlay();TAP.taps=[];$('#tapPad').disabled=true;$('#tapDone').disabled=true;$('#tapStart').disabled=false;$('#tapCount').innerHTML='&nbsp;';$('#tapDlg').showModal()}
+function tapStop(){if(TAP.src){try{TAP.src.onended=null;TAP.src.stop()}catch(e){}TAP.src=null}$('#tapPad').disabled=true;$('#tapStart').disabled=false}
+function tapStart(){tapStop();const ctx=ac(),{x,sr}=S.audio,b=ctx.createBuffer(1,x.length,sr);b.copyToChannel(x,0);const src=ctx.createBufferSource();src.buffer=b;src.connect(ctx.destination);
+  TAP.taps=[];TAP.t0=ctx.currentTime+0.15;src.start(TAP.t0);TAP.src=src;src.onended=()=>{TAP.src=null;$('#tapPad').disabled=true;$('#tapStart').disabled=false};
+  $('#tapPad').disabled=false;$('#tapStart').disabled=true;$('#tapDone').disabled=true;$('#tapCount').textContent='Tap on every beat…'}
+function tapHit(){if(!TAP.src)return;const t=AC.currentTime-TAP.t0-(AC.outputLatency||0);if(TAP.taps.length&&t-TAP.taps[TAP.taps.length-1]<0.12)return;TAP.taps.push(t);
+  const p=$('#tapPad');p.classList.add('hit');setTimeout(()=>p.classList.remove('hit'),70);$('#tapCount').textContent=TAP.taps.length+' taps';$('#tapDone').disabled=TAP.taps.length<4}
+function tapUse(){tapStop();$('#tapDlg').close();const c=S.cur;
+  if((c.song.ev.some(n=>n.takes)||c.parts)&&!confirm('This works the rhythm out again from the first recording, so phrase takes and added parts will be lost (Undo brings them back). Go on?'))return;
+  const r=TC.quantiseBeats(c.notes,TAP.taps,c.song.metre);if(!r){toast('Not enough taps.');return}
+  edit(s=>{s.ev=r.ev;s.pickup=r.pickup;s.bpm=Math.round(r.bpm);TC.ensurePhrases(s.ev);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.grid=null;c.parts=0;c.beats=TAP.taps.map(t=>+t.toFixed(3));c.edited=false;saveCur();
+  toast('Bars and note lengths now follow your '+TAP.taps.length+' taps ('+Math.round(r.bpm)+' bpm)',3500)}
+
 /* ---------- export ---------- */
 const safe=t=>(t||'tune').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')||'tune';
 async function give(blob,name){
@@ -1193,6 +1248,8 @@ function init(){
   $('#wordsRec').onclick=async()=>{if(!SET.wordsOk&&!(await askWords()))return;stopPlay();S.wordsTake=true;startRec()};
   $('#wordsApply').onclick=()=>{const t=$('#wordsText').value.trim();edit(s=>{if(t){TC.setLyricsInOrder(s.ev,t)}});S.cur.wordsTyped=t||null;S.cur.words=null;saveCur();render()};
   $('#wordsClear').onclick=()=>{edit(s=>{for(const n of s.ev){delete n.ly;delete n.syl;delete n.mel}});S.cur.words=null;S.cur.wordsTyped=null;$('#wordsText').value='';saveCur();render()};
+  $('#tapBtn').onclick=tapOpen;$('#tapStart').onclick=tapStart;$('#tapDone').onclick=tapUse;$('#tapCancel').onclick=()=>{tapStop();$('#tapDlg').close()};
+  $('#tapPad').addEventListener('pointerdown',e=>{e.preventDefault();tapHit()});$('#tapDlg').addEventListener('keydown',e=>{if(e.code==='Space'){e.preventDefault();if(!e.repeat)tapHit()}});$('#tapDlg').addEventListener('close',tapStop);
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
   let rt=0;window.addEventListener('resize',()=>{if(S.view!=='result')return;clearTimeout(rt);rt=setTimeout(render,200)});
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#catch').disabled=true;$('#noMic').hidden=false}
@@ -1201,7 +1258,7 @@ function init(){
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 // for tests
-window.TCAPP={S,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
+window.TCAPP={S,TAP,tapUse,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
 </script>
 </body>
