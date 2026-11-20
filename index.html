@@ -197,6 +197,7 @@ dialog li{margin:.4em 0}
     <div id="ckChips" class="chips"></div>
     <p class="tip">Green: heard right. Orange: missed or heard wrong.</p>
     <div class="row"><button id="ckSave" class="secondary">Save the recording</button></div>
+  </div><div class="row"><button id="ckShare" class="ghost">Share all check recordings</button></div><div>
   </div>
   <div id="ckHist" class="wordsbox" hidden><div class="wordshead"><b>Your results so far</b><button id="ckClear" class="ghost">Clear</button></div><table id="ckTable"></table></div>
   <button id="ckBack" class="ghost">Back</button>
@@ -257,6 +258,7 @@ dialog li{margin:.4em 0}
       <button data-export="abc">ABC text</button>
       <button data-export="print">Print or PDF</button>
       <button id="wavBtn" data-export="wav">My humming<small>as a sound file (WAV)</small></button>
+      <button data-export="all">All recordings + details<small>every take of this song, for testing</small></button>
     </details>
     <button id="addPart" class="secondary">Add the next part</button>
     <button id="again" class="ghost">New song</button>
@@ -278,7 +280,8 @@ dialog li{margin:.4em 0}
     <li>If the beat comes out wrong, use <i>Tap the beat</i>: your recording plays and you tap along. The bars and note lengths then follow your taps.</li>
     <li>Wrong time or a rhythm that looks twice too fast or slow? Change Time, or use ½ and ×2.</li>
   </ol>
-  <p>Your humming never leaves the phone. Catches are kept on this device only.</p>
+  <p>Your humming never leaves the phone. Songs and their recordings are kept on this device only, until you delete the song.</p>
+  <p id="buildNo" class="tip"></p>
   <button id="helpClose" class="primary">Got it</button>
 </dialog>
 <dialog id="tapDlg">
@@ -894,6 +897,21 @@ const saveSet=()=>store.set('tc.settings',SET);
 
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
+/* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
+const BUILD='2026-11-20 08:17 0bd87e9';
+let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
+const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
+async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
+    await tx('readwrite',st=>st.add({songId,kind,sr,pcm,date:Date.now()}));
+    // keep the newest 80 recordings
+    const keys=await tx('readonly',st=>st.getAllKeys());if(keys.length>80)await tx('readwrite',st=>{for(const k of keys.slice(0,keys.length-80))st.delete(k)})}catch(e){toast('The recording could not be kept on this device (storage full?)')}}
+const recList=async songId=>{try{return (await tx('readonly',st=>st.index('song').getAll(songId)))||[]}catch(e){return []}};
+const recDelSong=async songId=>{try{const ks=await tx('readonly',st=>st.index('song').getAllKeys(songId));await tx('readwrite',st=>{for(const k of ks)st.delete(k)})}catch(e){}};
+const pcmToFloat=p=>{const x=new Float32Array(p.length);for(let i=0;i<p.length;i++)x[i]=p[i]/32767;return x};
+// a song opened from the list: bring its first recording back, so playing, tapping and the words work again
+async function loadAudio(){const c=S.cur;if(!c||S.audio)return;const r=(await recList(c.id)).find(r=>r.kind==='song');if(!r||S.cur!==c)return;
+  const x=pcmToFloat(r.pcm);S.audio={x,sr:r.sr};S.y=await prep(x,r.sr);if(S.cur!==c||S.view!=='result')return;$('#playRec').hidden=false;$('#wavBtn').hidden=false;$('#wordsListen').hidden=false;$('#tapRow').hidden=false}
+
 /* ---------- state ---------- */
 const S={view:'home',cur:null,sel:-1,undo:[],rec:null,audio:null,visual:null,map:[],playing:null};
 // a catch: {id,title,date,song,notes,edited}
@@ -910,8 +928,8 @@ function renderList(){const all=catches(),ul=$('#list');ul.innerHTML='';$('#list
     li.innerHTML=`<button class="open"><b></b><span></span></button><button class="del" aria-label="Delete">✕</button>`;
     li.querySelector('b').textContent=c.title||'Untitled';
     li.querySelector('span').textContent=`${d.toLocaleDateString(undefined,{day:'numeric',month:'short'})} · ${c.song.K.name} · ${c.song.ev.length} notes`;
-    li.querySelector('.open').onclick=()=>{S.cur=JSON.parse(JSON.stringify(c));S.audio=null;S.undo=[];S.sel=-1;openResult()};
-    li.querySelector('.del').onclick=()=>{if(!confirm(`Delete “${c.title||'Untitled'}”?`))return;store.set('tc.catches',catches().filter(x=>x.id!==c.id));renderList()};
+    li.querySelector('.open').onclick=()=>{S.cur=JSON.parse(JSON.stringify(c));S.audio=null;S.y=null;S.undo=[];S.sel=-1;openResult();loadAudio()};
+    li.querySelector('.del').onclick=()=>{if(!confirm(`Delete “${c.title||'Untitled'}”?`))return;store.set('tc.catches',catches().filter(x=>x.id!==c.id));recDelSong(c.id);renderList()};
     ul.appendChild(li)}}
 
 /* ---------- recording ---------- */
@@ -952,7 +970,7 @@ function stopRec(){const r=S.rec;if(!r)return;S.rec=null;endClicks(r);
   const rt=S.retake;S.retake=null;
   if(rt){if(len<r.sr*0.4){toast('That was too short.');show('result');return}analyseRetake(x,r.sr,rt);return}
   if(S.check){if(len<r.sr*1){toast('That was too short.');show('check');return}checkDone(x,r.sr);return}
-  if(S.wordsTake){S.wordsTake=false;show('result');if(len<r.sr*0.5){toast('That was too short.');return}prep(x,r.sr).then(y=>listenWords(y));return}
+  if(S.wordsTake){S.wordsTake=false;show('result');if(len<r.sr*0.5){toast('That was too short.');return}recPut(S.cur.id,'words',x,r.sr);prep(x,r.sr).then(y=>listenWords(y));return}
   if(S.addPart){S.addPart=false;if(len<r.sr*1){toast('That was too short.');show('result');return}analysePart(x,r.sr);return}
   if(len<r.sr*1){toast('That was too short to catch anything.');show('home');return}
   const opt={};if(r.click&&isFinite(r.capStart)){opt.bpm=r.click.bpm;opt.metre=r.click.beats===3?'3/4':'4/4';const cx=AC;opt.grid={t0:r.click.downbeat-r.capStart,lat:Math.min(0.3,(cx.outputLatency||0)+(cx.baseLatency||0)+0.03)}}
@@ -1007,7 +1025,7 @@ async function prep(x,sr){let y=x;
   let pk=0;for(let i=0;i<y.length;i++)pk=Math.max(pk,Math.abs(y[i]));if(pk>0&&pk<0.5){const g=0.5/pk;y=y.map(v=>v*g)}
   return y}
 // a phrase sung again: caught on its own, then combined with the takes that phrase already has
-async function analyseRetake(x,sr,rt){show('work');$('#workMsg').textContent='Adding your take…';await new Promise(r=>setTimeout(r,60));
+async function analyseRetake(x,sr,rt){recPut(S.cur.id,'phrase'+(rt.pi+1)+'_take',x,sr);show('work');$('#workMsg').textContent='Adding your take…';await new Promise(r=>setTimeout(r,60));
   const y=await prep(x,sr);const notes=TC.segment(TC.track(y)).notes;
   if(!notes.length){toast('No clear notes in that take. Try it again, a little louder.',4000);show('result');return}
   push();if(!TC.addTake(S.cur.song,rt.pi,notes)){S.undo.pop();toast('That take could not be used.');show('result');return}
@@ -1015,7 +1033,7 @@ async function analyseRetake(x,sr,rt){show('work');$('#workMsg').textContent='Ad
   const P=TC.phrasesOf(S.cur.song.ev)[rt.pi],h=S.cur.song.ev[P.i0],un=S.cur.song.ev.slice(P.i0,P.i1).filter(n=>n.un).length;
   toast(`Phrase ${rt.pi+1}: ${h.takes.length} takes`+(un?`, ${un} note${un>1?'s':''} to check (orange)`:', all agreed'),3500)}
 // a further part of the song, sung separately and joined on the end
-async function analysePart(x,sr){show('work');$('#workMsg').textContent='Adding the next part…';await new Promise(r=>setTimeout(r,60));
+async function analysePart(x,sr){recPut(S.cur.id,'part',x,sr);show('work');$('#workMsg').textContent='Adding the next part…';await new Promise(r=>setTimeout(r,60));
   const y=await prep(x,sr),c=S.cur,r=TC.transcribe(y,{bpm:c.song.bpm,metre:c.song.metre,key:c.song.K});
   if(!r.ok){toast('No clear tune in that part. Try it again.',4000);show('result');return}
   push();if(c.words){c.wordsTyped=TC.lyricsText(c.song.ev);c.words=null}
@@ -1028,7 +1046,7 @@ function ckHist(){const h=store.get('tc.checks',[]);$('#ckHist').hidden=!h.lengt
   $('#ckTable').innerHTML='<tr><th>How</th><th>Tries</th><th>Notes heard right</th></tr>'+Object.keys(by).sort((a,b)=>by[b].right/by[b].total-by[a].right/by[a].total).map(k=>`<tr><td>${HOW[k]||k}</td><td>${by[k].n}</td><td>${Math.round(100*by[k].right/by[k].total)}%</td></tr>`).join('')}
 async function checkDone(x,sr){const ck=S.check;show('work');$('#workMsg').textContent='Comparing with the tune…';await new Promise(r=>setTimeout(r,60));
   const y=await prep(x,sr),notes=TC.segment(TC.track(y)).notes,t=ck.tune,m=TC.tuneMatch(notes.map(n=>n.k),t.k);
-  ck.audio={x,sr};ck.right=m.right;S.check=null;S.lastCheck=ck;show('check');$('#ckResult').hidden=false;
+  ck.audio={x,sr};ck.right=m.right;recPut('checks',`check_${t.id}_${ck.how}_${m.right}of${t.k.length}`,x,sr);S.check=null;S.lastCheck=ck;show('check');$('#ckResult').hidden=false;
   $('#ckScore').textContent=`Heard ${m.right} of ${t.k.length} notes right`+(m.extra?` (and ${m.extra} extra)`:'');
   $('#ckChips').innerHTML=t.k.map((k,i)=>`<span class="${m.ok[i]?'':'no'}">${TC.noteName(k-m.tr).replace(/-?\d+$/,'')}</span>`).join('');
   const h=store.get('tc.checks',[]);h.push({tune:t.id,how:ck.how,right:m.right,total:t.k.length,extra:m.extra,date:Date.now()});store.set('tc.checks',h.slice(-200));ckHist()}
@@ -1052,7 +1070,7 @@ async function analyse(x,sr,title,opt){opt=opt||{};
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
   r.song.ev.forEach(n=>{n.t=+n.t.toFixed(3)});
   S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
-  saveCur();openResult();
+  saveCur();recPut(S.cur.id,'song',x,sr);openResult();
   if(SET.words)listenWords();
 }
 
@@ -1199,7 +1217,15 @@ function wav(x,sr){const n=x.length,b=new DataView(new ArrayBuffer(44+n*2));cons
   w(0,'RIFF');b.setUint32(4,36+n*2,true);w(8,'WAVEfmt ');b.setUint32(16,16,true);b.setUint16(20,1,true);b.setUint16(22,1,true);b.setUint32(24,sr,true);b.setUint32(28,sr*2,true);b.setUint16(32,2,true);b.setUint16(34,16,true);w(36,'data');b.setUint32(40,n*2,true);
   for(let i=0;i<n;i++)b.setInt16(44+i*2,Math.max(-32767,Math.min(32767,Math.round(x[i]*32767))),true);return new Blob([b],{type:'audio/wav'})}
 function saveHum(title){if(!S.audio){toast('The recording is only kept until you leave this catch.');return}give(wav(S.audio.x,S.audio.sr),safe(title)+'.wav')}
+async function giveMany(files){
+  if(navigator.canShare&&window.File){const fs=files.map(([b,n])=>new File([b],n,{type:b.type}));if(navigator.canShare({files:fs})){try{await navigator.share({files:fs,title:'Tunecatcher recordings'});return}catch(e){if(e.name==='AbortError')return}}}
+  for(const [b,n] of files){await give(b,n);await new Promise(r=>setTimeout(r,400))}}
+function details(c){return JSON.stringify({app:'Tunecatcher',build:BUILD,device:navigator.userAgent,screen:innerWidth+'x'+innerHeight,audio:AC?{rate:AC.sampleRate,base:AC.baseLatency,out:AC.outputLatency}:null,settings:SET,song:c||null,checks:c?undefined:store.get('tc.checks',[])},null,1)}
+async function shareAll(songId,title,c){const recs=await recList(songId);if(!recs.length){toast('No recordings are kept for this yet. Recordings made from now on are kept.',4500);return}
+  const count={},files=recs.map(r=>{count[r.kind]=(count[r.kind]||0)+1;return [wav(pcmToFloat(r.pcm),r.sr),`${safe(title)}_${r.kind}${count[r.kind]>1?'_'+count[r.kind]:''}.wav`]});
+  files.push([new Blob([details(c)],{type:'text/plain'}),safe(title)+'_details.txt']);await giveMany(files)}
 const EXPORTS={
+  all:()=>shareAll(S.cur.id,S.cur.title,S.cur),
   wav:()=>saveHum(S.cur.title),
   midi:()=>give(new Blob([TC.toMIDI(S.cur.song)],{type:'audio/midi'}),safe(S.cur.title)+'.mid'),
   xml:()=>give(new Blob([TC.toMusicXML(S.cur.song,{title:S.cur.title})],{type:'application/vnd.recordare.musicxml+xml'}),safe(S.cur.title)+'.musicxml'),
@@ -1220,6 +1246,7 @@ function init(){
   $('#checkBtn').onclick=checkOpen;$('#ckBack').onclick=()=>show('home');
   $('#ckGo').onclick=()=>{S.check={tune:TC.TUNES.find(t=>t.id===ct.value),how:$('#ckHow').value};startRec()};
   $('#ckSave').onclick=()=>{const c=S.lastCheck;if(c)give(wav(c.audio.x,c.audio.sr),`check_${c.tune.id}_${c.how}_${c.right}of${c.tune.k.length}.wav`)};
+  $('#ckShare').onclick=()=>shareAll('checks','checks',null);
   $('#ckClear').onclick=()=>{store.set('tc.checks',[]);ckHist()};
   $('#title').onchange=e=>{S.cur.title=e.target.value.trim();saveCur()};
   $('#play').onclick=()=>playTune();$('#playRec').onclick=playRec;
@@ -1253,6 +1280,7 @@ function init(){
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
   let rt=0;window.addEventListener('resize',()=>{if(S.view!=='result')return;clearTimeout(rt);rt=setTimeout(render,200)});
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#catch').disabled=true;$('#noMic').hidden=false}
+  $('#buildNo').textContent='Version '+BUILD;
   show('home');
   if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
