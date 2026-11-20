@@ -898,7 +898,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-20 08:17 0bd87e9';
+const BUILD='2026-11-20 16:30 99c740c';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
@@ -1069,7 +1069,8 @@ async function analyse(x,sr,title,opt){opt=opt||{};
   if(!r.ok){S.failTitle=title;show('fail');return}
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
   r.song.ev.forEach(n=>{n.t=+n.t.toFixed(3)});
-  S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
+  const heard=JSON.parse(JSON.stringify(r.song));   // the app's own version, kept untouched beside the user's corrections
+  S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,heard,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
   saveCur();recPut(S.cur.id,'song',x,sr);openResult();
   if(SET.words)listenWords();
 }
@@ -1117,6 +1118,8 @@ function relyric(){const c=S.cur;if(c.words)TC.setLyrics(c.song.ev,c.words);else
 /* ---------- the result ---------- */
 function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;
   $('#wordsListen').hidden=!S.y;$('#tapRow').hidden=!S.audio;$('#wordsStatus').textContent='';$('#wordsText').value=TC.lyricsText(S.cur.song.ev)||S.cur.wordsTyped||'';syncControls();render()}
+function changed(c){if(!c.heard)return null;const a=c.heard.ev.map(n=>n.k),b=c.song.ev.map(n=>n.k),tr=(c.song.ev[0]&&c.heard.ev[0])?0:0;
+  const N=a.length,M=b.length;let prev=Array.from({length:M+1},(_,j)=>j);for(let i=1;i<=N;i++){const cur=[i];for(let j=1;j<=M;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=cur}return prev[M]}
 function syncControls(){const s=S.cur.song;
   $('#keySel').value=`${s.K.fifths}|${s.K.mode}`;$('#metreSel').value=s.metre;$('#clefSel').value=s.clef;$('#bpm').textContent=Math.round(s.bpm);
   $('#undo').disabled=!S.undo.length}
@@ -1132,6 +1135,7 @@ function render(){
   renderPhrases();renderTab();
   $('#meta').textContent=`${s.K.name} · ${s.metre} · ${Math.round(s.bpm)} bpm · ${s.ev.length} notes`+(s.offsetCents?` · sung ${s.offsetCents>0?'+':''}${s.offsetCents} cents from A440`:'');
   $('#editBar').hidden=S.sel<0;
+  {const d=changed(S.cur);if(d)$('#meta').textContent+=` · you corrected ${d} note${d>1?'s':''}`}
   if(S.sel>=0){const n=s.ev[S.sel];$('#selName').textContent=spelt(n.k)}
 }
 const spelt=k=>{const [st,al,oc]=TC.spell(k,S.cur.song.K.fifths);return st+(al===1?'♯':al===-1?'♭':'')+oc};
