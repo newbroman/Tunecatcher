@@ -857,7 +857,7 @@ function tuneMatch(got,truth){let best=null;for(let tr=-18;tr<=18;tr++){const a=
 
 /* ---------- known tunes, and tuning the listening to one voice ----------
    The user sings a tune the app already knows. What was heard is compared with the real notes, and the settings of the
-   note finder are searched for the ones that hear this voice best. All tunes here are in the public domain. */
+   note finder are searched for the ones that hear this voice best. All tunes here are traditional or long out of copyright. */
 const TUNES=[
  {id:'birthday',name:'Happy Birthday',metre:'3/4',words:'Happy birthday to you, happy birthday to you, happy birthday dear (name), happy birthday to you',
   k:[60,60,62,60,65,64,60,60,62,60,67,65,60,60,72,69,65,64,62,70,70,69,65,67,65]},
@@ -867,6 +867,20 @@ const TUNES=[
   k:[60,62,64,60,60,62,64,60,64,65,67,64,65,67,67,69,67,65,64,60,67,69,67,65,64,60,60,55,60,60,55,60]},
  {id:'auld',name:'Auld Lang Syne',metre:'4/4',words:'Should auld acquaintance be forgot, and never brought to mind? Should auld acquaintance be forgot, and auld lang syne',
   k:[60,65,65,65,69,67,65,67,69,65,65,69,72,74,74,72,69,69,65,67,65,67,69,65,62,62,60,65]},
+ {id:'mary',name:'Mary Had a Little Lamb',metre:'4/4',words:'Mary had a little lamb, little lamb, little lamb. Mary had a little lamb, its fleece was white as snow',
+  k:[64,62,60,62,64,64,64, 62,62,62, 64,67,67, 64,62,60,62,64,64,64,64,62,62,64,62,60]},
+ {id:'london',name:'London Bridge Is Falling Down',metre:'4/4',words:'London Bridge is falling down, falling down, falling down. London Bridge is falling down, my fair lady',
+  k:[67,69,67,65,64,65,67, 62,64,65, 64,65,67, 67,69,67,65,64,65,67, 62,67,64,60]},
+ {id:'macdonald',name:'Old MacDonald Had a Farm',metre:'4/4',words:'Old MacDonald had a farm, E-I-E-I-O. And on that farm he had a cow, E-I-E-I-O',
+  k:[67,67,67,62,64,64,62, 71,71,69,69,67, 62,67,67,67,62,64,64,62, 71,71,69,69,67]},
+ {id:'buns',name:'Hot Cross Buns',metre:'4/4',words:'Hot cross buns, hot cross buns. One a penny, two a penny, hot cross buns',
+  k:[64,62,60, 64,62,60, 60,60,60,60,62,62,62,62, 64,62,60]},
+ {id:'jingle',name:'Jingle Bells (chorus)',metre:'4/4',words:'Jingle bells, jingle bells, jingle all the way. Oh what fun it is to ride in a one-horse open sleigh',
+  k:[64,64,64, 64,64,64, 64,67,60,62,64, 65,65,65,65,65,64,64,64,64,64,62,62,64,62,67]},
+ {id:'ode',name:'Ode to Joy',metre:'4/4',words:'(No words: hum the first two lines of the tune.)',
+  k:[64,64,65,67,67,65,64,62,60,60,62,64,64,62,62, 64,64,65,67,67,65,64,62,60,60,62,64,62,60,60]},
+ {id:'kotek',name:'Wlazł kotek na płotek',metre:'3/4',words:'Wlazł kotek na płotek i mruga, ładna to piosenka, niedługa',
+  k:[67,64,64,65,62,62,60,64,67, 67,64,64,65,62,62,60,64,60]},
  {id:'row',name:'Row, Row, Row Your Boat',metre:'6/8',words:'Row, row, row your boat, gently down the stream. Merrily, merrily, merrily, merrily, life is but a dream',
   k:[60,60,60,62,64,64,62,64,65,67,72,72,72,67,67,67,64,64,64,60,60,60,67,65,64,62,60]},
 ];
@@ -937,7 +951,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-22 15:18 7a5c8af';
+const BUILD='2026-11-22 15:51 1bb5bbd';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
