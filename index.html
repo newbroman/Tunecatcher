@@ -385,7 +385,7 @@ function voicing(tr){
 }
 function tuningOf(m,v){let sx=0,sy=0;for(let i=0;i<m.length;i++){if(isNaN(m[i])||v[i]<0.4)continue;const a=2*Math.PI*(m[i]-Math.round(m[i]));sx+=Math.cos(a)*v[i];sy+=Math.sin(a)*v[i]}
   return (sx||sy)?Math.atan2(sy,sx)/(2*Math.PI):0}
-const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,GRACE:0,SAME:0,GRACEUP:2,RISE:0.5,QUIET:0.7,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,MODEW:0.2,PHW:0,DOWN:1.25,REST:4,FINE:0.1};
+const PARAMS={SIG:0.7,CAP:5,P_CHANGE:9,P_ON:2.2,P_OFF:2.2,P_SCALE:0.9,MIN:6,SLIDE:9,SCOOP:16,SNAP:0.9,KEYC:0.6,GRACE:0,WIN:15,SAME:0,GRACEUP:2,RISE:0.5,QUIET:0.7,VALLEY:0.6,DEEP:0.35,GATE:0.04,ODD:0.08,QW:0.03,PRIOR:0.004,MEDW:0.03,MODEW:0.2,PHW:0,DOWN:1.25,REST:4,FINE:0.1};
 function viterbi(m,v,off,lo,hi,scale){
   const n=m.length,N=hi-lo+1,S=N+1;   // state 0 silence, 1..N pitches lo..hi
   const {SIG,CAP,P_CHANGE,P_ON,P_OFF,P_SCALE}=PARAMS;
@@ -418,7 +418,7 @@ function syllables(env,gate,m){const n=env.length,cuts=[];let i=0;
   while(i<n){if(env[i]<gate){i++;continue}let j=i;while(j<n&&env[j]>=gate)j++;
     // valleys inside the burst
     let a=i;for(let k=i+4;k<j-4;k++){let lm=true;for(let q=-2;q<=2;q++)if(env[k+q]<env[k])lm=false;if(!lm)continue;
-      let L=0,R=0;for(let q=1;q<=15;q++){if(k-q>=a)L=Math.max(L,env[k-q]);if(k+q<j)R=Math.max(R,env[k+q])}
+      let L=0,R=0;for(let q=1;q<=PARAMS.WIN;q++){if(k-q>=a)L=Math.max(L,env[k-q]);if(k+q<j)R=Math.max(R,env[k+q])}
       const r=env[k]/Math.min(L,R);if(r>=PARAMS.VALLEY)continue;
       if(r>=PARAMS.DEEP&&m){const pa=[],pb=[];for(let q=1;q<=12;q++){if(!isNaN(m[k-q]))pa.push(m[k-q]);if(!isNaN(m[k+q]))pb.push(m[k+q])}
         if(pa.length<3||pb.length<3||Math.abs(median(pa)-median(pb))<0.7)continue}
@@ -861,8 +861,8 @@ function tuneMatch(got,truth){let best=null;for(let tr=-18;tr<=18;tr++){const a=
 const TUNES=[
  {id:'birthday',name:'Happy Birthday',metre:'3/4',words:'Happy birthday to you, happy birthday to you, happy birthday dear (name), happy birthday to you',
   k:[60,60,62,60,65,64,60,60,62,60,67,65,60,60,72,69,65,64,62,70,70,69,65,67,65]},
- {id:'twinkle',name:'Twinkle, Twinkle, Little Star',metre:'4/4',words:'Twinkle, twinkle, little star, how I wonder what you are',
-  k:[60,60,67,67,69,69,67,65,65,64,64,62,62,60]},
+ {id:'twinkle',name:'Twinkle, Twinkle, Little Star',metre:'4/4',words:'Twinkle, twinkle, little star, how I wonder what you are. Up above the world so high, like a diamond in the sky. Twinkle, twinkle, little star, how I wonder what you are',
+  k:[60,60,67,67,69,69,67,65,65,64,64,62,62,60, 67,67,65,65,64,64,62,67,67,65,65,64,64,62, 60,60,67,67,69,69,67,65,65,64,64,62,62,60]},
  {id:'jacques',name:'Frère Jacques',metre:'4/4',words:'Frère Jacques, Frère Jacques, dormez-vous, dormez-vous? Sonnez les matines, sonnez les matines, ding dang dong, ding dang dong',
   k:[60,62,64,60,60,62,64,60,64,65,67,64,65,67,67,69,67,65,64,60,67,69,67,65,64,60,60,55,60,60,55,60]},
  {id:'auld',name:'Auld Lang Syne',metre:'4/4',words:'Should auld acquaintance be forgot, and never brought to mind? Should auld acquaintance be forgot, and auld lang syne',
@@ -937,7 +937,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-22 15:08 215d91e';
+const BUILD='2026-11-22 15:18 7a5c8af';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
