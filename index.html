@@ -150,6 +150,8 @@ dialog li{margin:.4em 0}
 
 #stop.recording{background:#e2513f;color:#fff}
 #stop{min-width:9em;font-size:1.1rem;padding:.85em 1.2em}
+
+#phraseBox .tempo{margin:6px 0 2px}#phraseBox select{background:var(--ink3);border:0;border-radius:9px;padding:.4em .5em;color:var(--text);max-width:62%}
 </style>
 </head>
 <body>
@@ -237,8 +239,9 @@ dialog li{margin:.4em 0}
   </div>
   <div id="phraseBox" class="wordsbox">
     <div class="wordshead"><b>Phrases</b><span>Sing a phrase again to make it surer</span></div>
+    <div class="tempo"><span>Divide the song into</span><select id="phrSel"><option value="1">short phrases</option><option value="2">lines (about 2 bars or more)</option><option value="4">long phrases (4 bars or more)</option><option value="8">very long (8 bars or more)</option><option value="999">one piece</option></select></div>
     <ul id="phraseList"></ul>
-    <p class="hint left">Orange notes are ones your takes disagreed on. To split a phrase, tap the note that starts the new one, then “phrase”.</p>
+    <p class="hint left">Orange notes are ones your takes disagreed on. A phrase should be about a line of the song. “join ↓” joins one to the next; to split one, tap the note that starts the new phrase, then “phrase”.</p>
   </div>
   <div id="wordsBox" class="wordsbox">
     <div class="wordshead"><b>Words</b><span id="wordsStatus"></span></div>
@@ -740,9 +743,22 @@ const lyricsText=ev=>ev.filter(n=>n.ly!=null).map((n,i,a)=>n.ly+(n.syl==='begin'
 /* ---------- phrases and several takes ----------
    A phrase starts at a note flagged pb. The first take of a phrase is what the whole-song catch found; singing the phrase
    again adds a take. Takes are lined up note by note (any key, any speed), and each note is what most takes agree on. */
-function ensurePhrases(ev){if(!ev.length)return ev;if(!ev.some(n=>n.pb)){ev.forEach((n,i)=>{if(i===0||ev[i-1].e<n.s)n.pb=true})}ev[0].pb=true;return ev}
+// Phrases start after a silence. A phrase is meant to be a line of the song, not every breath: pieces shorter than about
+// minBars bars (2 unless told otherwise) are joined to the neighbour they sit closest to.
+function ensurePhrases(ev,metre,minBars){if(!ev.length)return ev;if(minBars==null)minBars=2;
+  if(!ev.some(n=>n.pb)){ev.forEach((n,i)=>{if(i===0||ev[i-1].e<n.s)n.pb=true});
+    const L=(METRES[metre]||METRES['4/4']).len,minLen=minBars*L,minNotes=minBars?Math.round(2.5*minBars):0;
+    for(let guard=0;guard<200;guard++){const P=phrasesOf(ev);if(P.length<2)break;
+      let worst=-1,wl=Infinity;P.forEach((p,i)=>{const len=ev[p.i1-1].e-ev[p.i0].s,n=p.i1-p.i0;if((len<minLen||n<minNotes)&&len<wl){wl=len;worst=i}});
+      if(worst<0)break;const p=P[worst],gb=worst>0?ev[p.i0].s-ev[p.i0-1].e:Infinity,ga=worst<P.length-1?ev[p.i1].s-ev[p.i1-1].e:Infinity;
+      // join across the smaller silence; if they are alike, to the shorter neighbour
+      const lb=worst>0?P[worst-1].i1-P[worst-1].i0:Infinity,la=worst<P.length-1?P[worst+1].i1-P[worst+1].i0:Infinity;
+      const back=Math.abs(gb-ga)<=1&&isFinite(gb)&&isFinite(ga)?lb<=la:gb<=ga;
+      if(back)delete ev[p.i0].pb;else delete ev[p.i1].pb}}
+  ev[0].pb=true;return ev}
 function phrasesOf(ev){const out=[];ev.forEach((n,i)=>{if(i===0||n.pb)out.push({i0:i,i1:i+1});else out[out.length-1].i1=i+1});return out}
-function phrasesFromWords(ev){for(let i=1;i<ev.length;i++)if(ev[i-1].ly&&/[.!?;]$/.test(ev[i-1].ly)&&ev[i].ly!=null&&!ev[i].pb&&!ev.some(n=>n.takes))ev[i].pb=true;return ev}
+function phrasesFromWords(ev){const far=i=>{let a=i;while(a>0&&!ev[a].pb)a--;let b=i;while(b<ev.length&&!(b>i&&ev[b].pb))b++;return i-a>=5&&b-i>=5};
+  for(let i=1;i<ev.length;i++)if(far(i)&&ev[i-1].ly&&/[.!?;]$/.test(ev[i-1].ly)&&ev[i].ly!=null&&!ev[i].pb&&!ev.some(n=>n.takes))ev[i].pb=true;return ev}
 const modeOf=(a,prefer)=>{const c=new Map();for(const v of a)c.set(v,(c.get(v)||0)+1);let best=null,bn=0;for(const [v,n] of c)if(n>bn||(n===bn&&v===prefer)){best=v;bn=n}return [best,bn]};
 function alignKeys(ref,take,tr,extra){const N=ref.length,M=take.length,GAP=1;const D=Array.from({length:N+1},()=>new Float64Array(M+1)),B=Array.from({length:N+1},()=>new Int8Array(M+1));
   for(let i=1;i<=N;i++){D[i][0]=i*GAP;B[i][0]=2}for(let j=1;j<=M;j++){D[0][j]=j*GAP;B[0][j]=3}
@@ -874,7 +890,7 @@ function transcribe(x,opt){
   const tp=opt.bpm?{beat:60/opt.bpm,conf:1}:tempo(notes);
   const metre=opt.metre||guessMetre(notes,tp.beat);
   const q=opt.grid?quantiseGrid(notes,tp.beat,metre,opt.grid.t0,opt.grid.lat):quantise(notes,tp.beat,metre);
-  ensurePhrases(q.ev);
+  ensurePhrases(q.ev,metre);
   const K=opt.key||key(q.ev);
   const med=median(q.ev.map(n=>n.k));
   const clef=opt.clef||(med<55?'bass':'treble');
@@ -895,13 +911,13 @@ G.TC={SR,PARAMS,quantiseBeats,textTab,fretFor,removeTake,addPart,tuneMatch,TUNES
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const store={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){return false}}};
 const MAXREC=90;   // seconds
-const SET=Object.assign({click:0,bpm:90,words:false,wordsOk:false},store.get('tc.settings',{}));
+const SET=Object.assign({click:0,bpm:90,words:false,wordsOk:false,phr:2},store.get('tc.settings',{}));
 const saveSet=()=>store.set('tc.settings',SET);
 
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-22 14:52 f72fc8a';
+const BUILD='2026-11-22 15:03 6ef9ed0';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
@@ -1068,11 +1084,13 @@ async function checkDone(x,sr){const ck=S.check;show('work');$('#workMsg').textC
   const h=store.get('tc.checks',[]);h.push({tune:t.id,how:ck.how,right:m.right,total:t.k.length,extra:m.extra,date:Date.now()});store.set('tc.checks',h.slice(-200));ckHist()}
 function singPhrase(pi){const P=TC.phrasesOf(S.cur.song.ev)[pi];if(!P)return;S.retake={pi,i0:P.i0,text:phraseText(P)};startRec()}
 function phraseText(P){const ev=S.cur.song.ev.slice(P.i0,P.i1);const w=TC.lyricsText(ev);return w||ev.slice(0,6).map(n=>spelt(n.k)).join(' ')+(ev.length>6?' …':'')}
-function renderPhrases(){const ul=$('#phraseList');ul.innerHTML='';const ev=S.cur.song.ev;TC.ensurePhrases(ev);
+function renderPhrases(){const ul=$('#phraseList');ul.innerHTML='';const ev=S.cur.song.ev;TC.ensurePhrases(ev,S.cur.song.metre,SET.phr);
   TC.phrasesOf(ev).forEach((P,pi)=>{const li=document.createElement('li'),h=ev[P.i0],nt=h.takes?h.takes.length:1,un=ev.slice(P.i0,P.i1).filter(n=>n.un).length;
-    li.innerHTML='<span class="ptxt"></span><button class="ghost" aria-label="Play this phrase">▶</button><button class="secondary">Sing again</button>';
+    li.innerHTML='<span class="ptxt"></span><button class="ghost" aria-label="Play this phrase">▶</button><button class="secondary">Sing again</button>'+(pi<TC.phrasesOf(ev).length-1?'<button class="ghost join" aria-label="Join this phrase with the next one">join ↓</button>':'');
     const t=li.querySelector('.ptxt');t.textContent=(pi+1)+' · '+phraseText(P);const sm=document.createElement('small');sm.textContent=(nt>1?nt+' takes':'')+(un?(nt>1?', ':'')+un+' to check':'');t.appendChild(sm);
     const [bp,bs]=li.querySelectorAll('button');bp.onclick=()=>playTune([P.i0,P.i1]);bs.onclick=()=>{stopPlay();singPhrase(pi)};
+    const bj=li.querySelector('.join');if(bj)bj.onclick=()=>{const hasTakes=!!(h.takes||ev[P.i1].takes);if(hasTakes&&!confirm('Joining these phrases keeps the notes but forgets their separate takes. Go on?'))return;
+      edit(s=>{dropTakes(s.ev,P.i0);const nx=s.ev[P.i1];delete nx.pb;delete nx.takes;delete nx.p0})};
     if(nt>1){const d=document.createElement('div');d.className='takes';for(let ti=1;ti<nt;ti++){const b=document.createElement('button');b.textContent='take '+(ti+1)+' ✕';b.setAttribute('aria-label','Remove take '+(ti+1));
         b.onclick=()=>{push();if(TC.removeTake(S.cur.song,pi,ti)){relyric();saveCur();syncControls();render()}else S.undo.pop()};d.appendChild(b)}li.appendChild(d)}
     ul.appendChild(li)})}
@@ -1085,6 +1103,7 @@ async function analyse(x,sr,title,opt){opt=opt||{};
   if(!r.ok){S.failTitle=title;show('fail');return}
   const notes=r.notes.map(n=>({t:+n.t.toFixed(3),d:+n.d.toFixed(3),k:n.k,vel:n.vel}));
   r.song.ev.forEach(n=>{n.t=+n.t.toFixed(3)});
+  if(SET.phr!==2){for(const n of r.song.ev)delete n.pb;TC.ensurePhrases(r.song.ev,r.song.metre,SET.phr)}
   const heard=JSON.parse(JSON.stringify(r.song));   // the app's own version, kept untouched beside the user's corrections
   S.cur={id:Date.now().toString(36),title,date:Date.now(),song:r.song,heard,notes,edited:false,grid:opt.grid||null};S.undo=[];S.sel=-1;
   saveCur();recPut(S.cur.id,'song',x,sr);openResult();
@@ -1132,7 +1151,8 @@ async function listenWords(own){own=own instanceof Float32Array?own:null;if(!S.c
 function relyric(){const c=S.cur;if(c.words)TC.setLyrics(c.song.ev,c.words);else if(c.wordsTyped)TC.setLyricsInOrder(c.song.ev,c.wordsTyped)}
 
 /* ---------- the result ---------- */
-function openResult(){show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;
+function openResult(){const c0=S.cur;if(c0&&c0.phv!==2){if(!c0.song.ev.some(n=>n.takes)&&!c0.parts){for(const n of c0.song.ev)delete n.pb;TC.ensurePhrases(c0.song.ev,c0.song.metre,SET.phr)}c0.phv=2;saveCur()}
+  show('result');$('#title').value=S.cur.title;$('#playRec').hidden=!S.audio;$('#wavBtn').hidden=!S.audio;
   $('#wordsListen').hidden=!S.y;$('#tapRow').hidden=!S.audio;$('#wordsStatus').textContent='';$('#wordsText').value=TC.lyricsText(S.cur.song.ev)||S.cur.wordsTyped||'';syncControls();render()}
 function changed(c){if(!c.heard)return null;const a=c.heard.ev.map(n=>n.k),b=c.song.ev.map(n=>n.k),tr=(c.song.ev[0]&&c.heard.ev[0])?0:0;
   const N=a.length,M=b.length;let prev=Array.from({length:M+1},(_,j)=>j);for(let i=1;i<=N;i++){const cur=[i];for(let j=1;j<=M;j++)cur[j]=Math.min(prev[j]+1,cur[j-1]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));prev=cur}return prev[M]}
@@ -1185,7 +1205,7 @@ function setTempo(bpm){bpm=Math.max(30,Math.min(260,Math.round(bpm)));const c=S.
       for(let i=0;i<s.ev.length-1;i++)if(s.ev[i].e>s.ev[i+1].s)s.ev[i].e=s.ev[i+1].s;for(const n of s.ev){delete n.takes;delete n.p0}const p=TC.place(s.ev,s.metre);s.ev=p.ev;s.pickup=p.pickup}s.bpm=bpm});return}
   if(c.edited&&!confirm('Changing the tempo works the rhythm out again from your humming, so your note edits will be lost (Undo brings them back). Go on?'))return;
   const grid=c.grid&&Math.abs(bpm-c.song.bpm)<0.5?c.grid:null;if(!grid)c.grid=null;
-  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre,grid});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm;TC.ensurePhrases(s.ev);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.edited=false}
+  edit(s=>{const r=TC.requantise(c.notes,{bpm,metre:s.metre,grid});s.ev=r.ev;s.pickup=r.pickup;s.bpm=bpm;TC.ensurePhrases(s.ev,s.metre,SET.phr);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.edited=false}
 function transposeAll(d){edit(s=>{for(const n of s.ev)n.k+=d;const f=((s.K.fifths+7*d)%12+12+6)%12-6;s.K=TC.keyFromFifths(f===6&&s.K.fifths<0?-6:f,s.K.mode)})}
 
 /* ---------- sound ---------- */
@@ -1225,7 +1245,7 @@ function tapHit(){if(!TAP.src)return;const t=AC.currentTime-TAP.t0-(AC.outputLat
 function tapUse(){tapStop();$('#tapDlg').close();const c=S.cur;
   if((c.song.ev.some(n=>n.takes)||c.parts)&&!confirm('This works the rhythm out again from the first recording, so phrase takes and added parts will be lost (Undo brings them back). Go on?'))return;
   const r=TC.quantiseBeats(c.notes,TAP.taps,c.song.metre);if(!r){toast('Not enough taps.');return}
-  edit(s=>{s.ev=r.ev;s.pickup=r.pickup;s.bpm=Math.round(r.bpm);TC.ensurePhrases(s.ev);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.grid=null;c.parts=0;c.beats=TAP.taps.map(t=>+t.toFixed(3));c.edited=false;saveCur();
+  edit(s=>{s.ev=r.ev;s.pickup=r.pickup;s.bpm=Math.round(r.bpm);TC.ensurePhrases(s.ev,s.metre,SET.phr);relyric();if(c.words)TC.phrasesFromWords(s.ev)});c.grid=null;c.parts=0;c.beats=TAP.taps.map(t=>+t.toFixed(3));c.edited=false;saveCur();
   toast('Bars and note lengths now follow your '+TAP.taps.length+' taps ('+Math.round(r.bpm)+' bpm)',3500)}
 
 /* ---------- export ---------- */
@@ -1283,6 +1303,8 @@ function init(){
   $('#clefSel').onchange=e=>edit(s=>{s.clef=e.target.value});
   $('#posInput').oninput=e=>{const was=SET.pos>0;SET.pos=+e.target.value;saveSet();if(was!==(SET.pos>0))render();else renderTab()};
   $('#copyTab').onclick=async()=>{const t=(S.cur.title?S.cur.title+'\n\n':'')+$('#tabText').textContent;try{await navigator.clipboard.writeText(t);toast('Tab copied')}catch(e){give(new Blob([t],{type:'text/plain'}),safe(S.cur.title)+'_tab.txt')}};
+  $('#phrSel').value=String(SET.phr);$('#phrSel').onchange=e=>{const c=S.cur;if((c.song.ev.some(n=>n.takes))&&!confirm('Dividing the song again keeps the notes but forgets the takes of each phrase. Go on?')){e.target.value=String(SET.phr);return}
+    SET.phr=+e.target.value;saveSet();edit(s=>{for(const n of s.ev){delete n.pb;delete n.takes;delete n.p0}TC.ensurePhrases(s.ev,s.metre,SET.phr);if(c.words)TC.phrasesFromWords(s.ev)})};
   $('#tabSel').value=SET.tab||'';$('#tabSel').onchange=e=>{SET.tab=e.target.value;saveSet();render();const lo=Math.min(...S.cur.song.ev.map(n=>n.k));if(SET.tab&&lo<40)toast('Some notes are below the guitar’s lowest string. Use Transpose + to bring the tune up.',5000)};
   $('#slower').onclick=()=>setTempo(S.cur.song.bpm-4);$('#faster').onclick=()=>setTempo(S.cur.song.bpm+4);
   $('#half').onclick=()=>setTempo(S.cur.song.bpm/2);$('#double').onclick=()=>setTempo(S.cur.song.bpm*2);
