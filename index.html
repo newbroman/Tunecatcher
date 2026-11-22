@@ -152,6 +152,18 @@ dialog li{margin:.4em 0}
 #stop{min-width:9em;font-size:1.1rem;padding:.85em 1.2em}
 
 #phraseBox .tempo{margin:6px 0 2px}#phraseBox select{background:var(--ink3);border:0;border-radius:9px;padding:.4em .5em;color:var(--text);max-width:62%}
+
+.files h2{font-family:var(--serif);font-weight:400;font-size:1.6rem;margin:.2em 0}
+.fmcard{background:var(--ink2);border-radius:14px;padding:10px 12px;margin:0 0 12px}
+.fmcard input.fmtitle{width:100%;background:transparent;border:0;border-bottom:1px solid var(--ink3);color:var(--text);font:inherit;font-family:var(--serif);font-size:1.2rem;padding:.15em 0;outline:none}
+.fmcard input.fmtitle:focus{border-color:var(--amber)}
+.fmmeta{color:var(--dim);font-size:.82rem;margin:.3em 0 .5em}
+.fmacts{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px}.fmacts button{padding:.45em .8em;font-size:.85rem}
+.fmacts .danger,.fmrec .danger{color:#ff9a8d}
+.fmrec{display:flex;align-items:center;gap:4px;border-top:1px solid var(--ink3);padding:4px 0;font-size:.88rem}
+.fmrec span{flex:1;min-width:0}.fmrec small{color:var(--dim);display:block}
+.fmrec button{padding:.4em .65em;background:transparent;flex:none}
+.fmnone{color:var(--dim);font-size:.85rem;border-top:1px solid var(--ink3);padding:6px 0 0}
 </style>
 </head>
 <body>
@@ -174,6 +186,7 @@ dialog li{margin:.4em 0}
   <p id="noMic" class="warn" hidden>This browser can’t use the microphone here. You can still open a recording.</p>
   <label class="filebtn">Open a recording<input id="file" type="file" accept="audio/*,video/*" hidden></label>
   <div id="listWrap" hidden><h2>Your songs</h2><ul id="list"></ul></div>
+  <p><button id="filesBtn" class="linkbtn">Manage songs and recordings</button></p>
   <p><button id="checkBtn" class="linkbtn">Check how well it hears you</button></p>
   <p class="privacy">Everything happens on this phone. Nothing is uploaded.</p>
 </section>
@@ -206,6 +219,13 @@ dialog li{margin:.4em 0}
   </div>
   <div id="ckHist" class="wordsbox" hidden><div class="wordshead"><b>Your results so far</b><button id="ckClear" class="ghost">Clear</button></div><table id="ckTable"></table></div>
   <button id="ckBack" class="ghost">Back</button>
+</section>
+
+<section data-view="files" class="files" hidden>
+  <h2>Songs and recordings</h2>
+  <p id="fmUsage" class="tip"></p>
+  <div id="fmList"></div>
+  <div class="row"><button id="fmShareAll" class="secondary">Share everything</button><button id="fmBack" class="ghost">Back</button></div>
 </section>
 
 <section data-view="work" class="work" hidden>
@@ -917,7 +937,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-22 15:03 6ef9ed0';
+const BUILD='2026-11-22 15:08 215d91e';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
@@ -926,6 +946,10 @@ async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);f
     const keys=await tx('readonly',st=>st.getAllKeys());if(keys.length>80)await tx('readwrite',st=>{for(const k of keys.slice(0,keys.length-80))st.delete(k)})}catch(e){toast('The recording could not be kept on this device (storage full?)')}}
 const recList=async songId=>{try{return (await tx('readonly',st=>st.index('song').getAll(songId)))||[]}catch(e){return []}};
 const recDelSong=async songId=>{try{const ks=await tx('readonly',st=>st.index('song').getAllKeys(songId));await tx('readwrite',st=>{for(const k of ks)st.delete(k)})}catch(e){}};
+// every recording's details without holding all the sound in memory at once
+const recMeta=async()=>{const db=await idb();return new Promise((res,rej)=>{const out=[],q=db.transaction('rec').objectStore('rec').openCursor();q.onsuccess=()=>{const c=q.result;if(!c){res(out);return}const v=c.value;out.push({id:v.id,songId:v.songId,kind:v.kind,sr:v.sr,len:v.pcm.length,date:v.date});c.continue()};q.onerror=()=>rej(q.error)})};
+const recGet=id=>tx('readonly',st=>st.get(id));
+const recDel=id=>tx('readwrite',st=>{st.delete(id)});
 const pcmToFloat=p=>{const x=new Float32Array(p.length);for(let i=0;i<p.length;i++)x[i]=p[i]/32767;return x};
 // a song opened from the list: bring its first recording back, so playing, tapping and the words work again
 async function loadAudio(){const c=S.cur;if(!c||S.audio)return;const r=(await recList(c.id)).find(r=>r.kind==='song');if(!r||S.cur!==c)return;
@@ -950,6 +974,45 @@ function renderList(){const all=catches(),ul=$('#list');ul.innerHTML='';$('#list
     li.querySelector('.open').onclick=()=>{S.cur=JSON.parse(JSON.stringify(c));S.audio=null;S.y=null;S.undo=[];S.sel=-1;openResult();loadAudio()};
     li.querySelector('.del').onclick=()=>{if(!confirm(`Delete “${c.title||'Untitled'}”?`))return;store.set('tc.catches',catches().filter(x=>x.id!==c.id));recDelSong(c.id);renderList()};
     ul.appendChild(li)}}
+
+/* ---------- songs and recordings: one page to look after them ---------- */
+const kindName=k=>{let m;if(k==='song')return 'Whole song';if((m=/^phrase(\d+)_take$/.exec(k)))return 'Phrase '+m[1]+', a further take';if(k==='part')return 'An added part';if(k==='words')return 'The words';
+  if((m=/^check_([a-z]+)_([a-z]+)_(\d+)of(\d+)$/.exec(k))){const t=TC.TUNES.find(t=>t.id===m[1]);return (t?t.name:m[1])+' ('+(HOW[m[2]]||m[2])+'): '+m[3]+' of '+m[4]}return k};
+const mmss=s=>Math.floor(s/60)+':'+String(Math.round(s%60)).padStart(2,'0');
+const when=d=>new Date(d).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+let fmPlaying=null;function fmStop(){if(fmPlaying){try{fmPlaying.src.stop()}catch(e){}fmPlaying.btn.textContent='▶';fmPlaying=null}}
+async function fmPlay(id,btn){const same=fmPlaying&&fmPlaying.id===id;fmStop();if(same)return;const r=await recGet(id);if(!r)return;const ctx=ac(),x=pcmToFloat(r.pcm),b=ctx.createBuffer(1,x.length,r.sr);b.copyToChannel(x,0);
+  const src=ctx.createBufferSource();src.buffer=b;src.connect(ctx.destination);src.start();fmPlaying={id,src,btn};btn.textContent='■';src.onended=()=>{if(fmPlaying&&fmPlaying.id===id)fmStop()}}
+async function filesOpen(){stopPlay();fmStop();show('files');const box=$('#fmList');box.innerHTML='<p class="tip">Looking…</p>';
+  let metas=[];try{metas=await recMeta()}catch(e){}const songs=catches(),by={};for(const m of metas)(by[m.songId]=by[m.songId]||[]).push(m);
+  const bytes=metas.reduce((a,m)=>a+m.len*2,0);let est='';try{const e=await navigator.storage.estimate();if(e&&e.quota)est=' The device allows this app about '+(e.quota/1e9).toFixed(1)+' GB.'}catch(e){}
+  $('#fmUsage').textContent=`${songs.length} song${songs.length===1?'':'s'}, ${metas.length} recording${metas.length===1?'':'s'} (${(bytes/1e6).toFixed(1)} MB). The newest 80 recordings are kept.`+est;
+  box.innerHTML='';
+  const recRow=(m,card)=>{const d=document.createElement('div');d.className='fmrec';d.innerHTML='<span></span><button aria-label="Play">▶</button><button aria-label="Share this recording">share</button><button class="danger" aria-label="Delete this recording">✕</button>';
+    d.querySelector('span').innerHTML='';const sp=d.querySelector('span');sp.textContent=kindName(m.kind);const sm=document.createElement('small');sm.textContent=mmss(m.len/m.sr)+' · '+when(m.date);sp.appendChild(sm);
+    const [bp,bs,bd]=d.querySelectorAll('button');bp.onclick=()=>fmPlay(m.id,bp);
+    bs.onclick=async()=>{const r=await recGet(m.id);if(r)give(wav(pcmToFloat(r.pcm),r.sr),safe(card.title)+'_'+m.kind+'.wav')};
+    bd.onclick=async()=>{if(!confirm('Delete this recording? The score is not changed.'))return;fmStop();await recDel(m.id);if(S.cur&&S.cur.id===m.songId&&m.kind==='song'){S.audio=null;S.y=null}filesOpen()};return d};
+  const card=(id,title,c)=>{const recs=(by[id]||[]).sort((a,b)=>a.date-b.date);delete by[id];const el=document.createElement('div');el.className='fmcard';const info={title};
+    if(c){const inp=document.createElement('input');inp.className='fmtitle';inp.value=c.title||'';inp.placeholder='Title';inp.setAttribute('aria-label','Song title');
+      inp.onchange=()=>{const all=catches(),x=all.find(q=>q.id===id);if(x){x.title=inp.value.trim();store.set('tc.catches',all);info.title=x.title;if(S.cur&&S.cur.id===id)S.cur.title=x.title}};el.appendChild(inp);
+      const mt=document.createElement('p');mt.className='fmmeta';const takes=c.song.ev.filter(n=>n.takes).length;mt.textContent=when(c.date)+' · '+c.song.ev.length+' notes · '+c.song.K.name+' · '+c.song.metre+(c.parts>1?' · '+c.parts+' parts':'')+(takes?' · takes on '+takes+' phrase'+(takes>1?'s':''):'');el.appendChild(mt)}
+    else{const h=document.createElement('b');h.textContent=title;el.appendChild(h);const mt=document.createElement('p');mt.className='fmmeta';mt.textContent=id==='checks'?'Recordings from “Check how well it hears you”':'Recordings whose song has been deleted';el.appendChild(mt)}
+    const acts=document.createElement('div');acts.className='fmacts';const add=(t,fn,cls)=>{const b=document.createElement('button');b.textContent=t;if(cls)b.className=cls;b.onclick=fn;acts.appendChild(b)};
+    if(c)add('Open',()=>{fmStop();S.cur=JSON.parse(JSON.stringify(catches().find(q=>q.id===id)));S.audio=null;S.y=null;S.undo=[];S.sel=-1;openResult();loadAudio()});
+    if(recs.length)add('Share all',()=>shareAll(id,info.title||title,c?catches().find(q=>q.id===id):null));
+    if(recs.length)add('Delete recordings',async()=>{if(!confirm(c?'Delete all '+recs.length+' recordings of this song? The score is kept.':'Delete these '+recs.length+' recordings?'))return;fmStop();await recDelSong(id);if(S.cur&&S.cur.id===id){S.audio=null;S.y=null}filesOpen()},'danger');
+    if(c)add('Delete song',async()=>{if(!confirm('Delete “'+(info.title||'Untitled')+'” and its recordings? This cannot be undone.'))return;fmStop();store.set('tc.catches',catches().filter(q=>q.id!==id));await recDelSong(id);if(S.cur&&S.cur.id===id)S.cur=null;filesOpen()},'danger');
+    el.appendChild(acts);
+    if(recs.length)for(const m of recs)el.appendChild(recRow(m,info));else{const n=document.createElement('p');n.className='fmnone';n.textContent='No recordings kept for this song.';el.appendChild(n)}
+    box.appendChild(el)};
+  for(const c of songs)card(c.id,c.title||'Untitled',c);
+  if(by.checks)card('checks','Check recordings',null);
+  for(const id of Object.keys(by))card(id,'Other recordings',null);
+  if(!box.children.length)box.innerHTML='<p class="tip">Nothing here yet. Songs you catch and their recordings will be listed here.</p>'}
+async function shareEverything(){const metas=await recMeta();if(!metas.length){toast('There are no recordings to share.');return}const songs=catches(),files=[],count={};
+  for(const m of metas){const r=await recGet(m.id);if(!r)continue;const c=songs.find(q=>q.id===m.songId),base=safe(c?c.title:m.songId)+'_'+m.kind;count[base]=(count[base]||0)+1;files.push([wav(pcmToFloat(r.pcm),r.sr),base+(count[base]>1?'_'+count[base]:'')+'.wav'])}
+  files.push([new Blob([JSON.stringify({app:'Tunecatcher',build:BUILD,device:navigator.userAgent,settings:SET,songs,checks:store.get('tc.checks',[])},null,1)],{type:'text/plain'}),'tunecatcher_details.txt']);await giveMany(files)}
 
 /* ---------- recording ---------- */
 function recButtons(){const r=S.rec,on=r&&r.armed;const b=$('#stop');b.textContent=on?'■ Stop':'● Start';b.classList.toggle('recording',!!on);
@@ -1288,6 +1351,7 @@ function init(){
   $('#again').onclick=()=>{stopPlay();startRec()};
   $('#addPart').onclick=()=>{stopPlay();S.addPart=true;startRec()};
   const ct=$('#ckTune');for(const t of TC.TUNES){const o=document.createElement('option');o.value=t.id;o.textContent=t.name;ct.appendChild(o)}ct.onchange=ckTune;
+  $('#filesBtn').onclick=filesOpen;$('#fmBack').onclick=()=>{fmStop();show('home')};$('#fmShareAll').onclick=shareEverything;
   $('#checkBtn').onclick=checkOpen;$('#ckBack').onclick=()=>show('home');
   $('#ckGo').onclick=()=>{S.check={tune:TC.TUNES.find(t=>t.id===ct.value),how:$('#ckHow').value};startRec()};
   $('#ckSave').onclick=()=>{const c=S.lastCheck;if(c)give(wav(c.audio.x,c.audio.sr),`check_${c.tune.id}_${c.how}_${c.right}of${c.tune.k.length}.wav`)};
@@ -1333,9 +1397,9 @@ function init(){
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
 // the Android back button: close what is open, go back a screen; false means leave the app
-window.TCBack=()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true}if(S.rec){cancelRec();return true}if(S.view==='home')return false;stopPlay();S.check=null;show('home');return true};
+window.TCBack=()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true}if(S.rec){cancelRec();return true}if(S.view==='home')return false;stopPlay();fmStop();S.check=null;show('home');return true};
 // for tests
-window.TCAPP={S,TAP,tapUse,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
+window.TCAPP={S,filesOpen,TAP,tapUse,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
 </script>
 </body>
