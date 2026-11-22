@@ -147,6 +147,9 @@ dialog li{margin:.4em 0}
 
 .tappad{display:block;width:100%;height:120px;font-size:1.6rem;font-weight:700;background:var(--amber);color:#201703;border-radius:16px;margin:8px 0 2px;touch-action:manipulation;user-select:none}
 .tappad:disabled{background:var(--ink3);color:var(--dim)}.tappad.hit{filter:brightness(1.35)}
+
+#stop.recording{background:#e2513f;color:#fff}
+#stop{min-width:9em;font-size:1.1rem;padding:.85em 1.2em}
 </style>
 </head>
 <body>
@@ -160,7 +163,7 @@ dialog li{margin:.4em 0}
   <h1>Hum it. Catch it.</h1>
   <p class="lede">Hum a tune and get it back as sheet music you can play, fix and save.</p>
   <button id="catch" class="catch" aria-label="Start humming"><span class="ring"></span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z" fill="currentColor"/></svg></button>
-  <p class="under">Tap and hum, or sing</p>
+  <p class="under">Tap, press Start, then hum or sing</p>
   <div class="opts">
     <div class="opt"><span>Count-in click</span><select id="clickSel"><option value="0">Off</option><option value="3">3 beats (waltz)</option><option value="4">4 beats</option></select></div>
     <div class="opt" id="clickTempo" hidden><span>Tempo</span><div class="stepper"><button id="cSlower" aria-label="Slower">−</button><b id="cBpm">90</b><button id="cFaster" aria-label="Faster">+</button></div></div>
@@ -181,8 +184,8 @@ dialog li{margin:.4em 0}
   <canvas id="trail"></canvas>
   <div id="liveNotes" class="chips live"></div>
   <div id="recTime" class="time">0:00</div>
-  <p class="tip">Hum on “mm” or “da”. Give repeated notes a little gap.</p>
-  <div class="row"><button id="cancel" class="ghost">Cancel</button><button id="stop" class="primary">■ Done</button></div>
+  <p class="tip" id="recTip">Ready. Press Start when you are, then Stop at the end.</p>
+  <div class="row"><button id="cancel" class="ghost">Cancel</button><button id="stop" class="primary">● Start</button></div>
 </section>
 
 <section data-view="check" class="check" hidden>
@@ -269,12 +272,12 @@ dialog li{margin:.4em 0}
 <dialog id="help">
   <h2>How to catch a tune</h2>
   <ol>
-    <li>Tap the microphone and hum the tune, on “da” or “la”. Get the tune right first; the words come afterwards.</li>
+    <li>Tap the microphone, then <i>● Start</i>, and hum the tune on “da” or “la”. Nothing is recorded until you press Start. Get the tune right first; the words come afterwards.</li>
     <li>When the tune is right, go to <i>Words</i> and tap <i>Sing or say the words</i> (or type them). They are spread under the notes in order, one syllable to a note.</li>
     <li>For the best rhythm, turn on the <i>count-in click</i>: choose 3 or 4 beats and a tempo, wait for the count, and sing along with the click. Headphones keep the click out of the recording.</li>
     <li>Leave a small gap between repeated notes, so they come out as two.</li>
     <li>Keep a steady beat. Tunecatcher works out the tempo, the time and the key.</li>
-    <li>Tap ■ Done. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
+    <li>Tap ■ Stop. If a note is wrong, tap it and nudge it up or down, or make it longer or shorter.</li>
     <li>Sing the whole song once. Then, under <i>Phrases</i>, sing any phrase again, as many times as you like, in any key: Tunecatcher lines the takes up and keeps what most of them agree on.</li>
     <li>A long song can be built in parts: sing the first part, then <i>Add the next part</i> and sing on from there. Each part joins the end of the song.</li>
     <li>If the beat comes out wrong, use <i>Tap the beat</i>: your recording plays and you tap along. The bars and note lengths then follow your taps.</li>
@@ -898,7 +901,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-22 07:25 099b453';
+const BUILD='2026-11-22 14:48 4c9823b';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
@@ -933,29 +936,35 @@ function renderList(){const all=catches(),ul=$('#list');ul.innerHTML='';$('#list
     ul.appendChild(li)}}
 
 /* ---------- recording ---------- */
+function recButtons(){const r=S.rec,on=r&&r.armed;const b=$('#stop');b.textContent=on?'■ Stop':'● Start';b.classList.toggle('recording',!!on);
+  $('#recTip').textContent=on?'Recording. Hum on “da” or “la”; give repeated notes a little gap.':'Ready. Press Start when you are, then Stop at the end.'}
 async function startRec(){
   stopPlay();
   let stream;
   try{stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false}})}
   catch(e){toast('The microphone could not be opened. Allow it for this site, or open a recording instead.',5000);return}
   const ctx=ac();const src=ctx.createMediaStreamSource(stream);
-  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0,capStart=Infinity,skipUntil=0;
-  const rt=S.retake;if(rt){const k=S.cur.song.ev[rt.i0].k;voice(ctx,k,ctx.currentTime+0.05,0.5,90,ctx.destination);skipUntil=ctx.currentTime+0.85}   // the phrase's first note, to start from
+  const proc=ctx.createScriptProcessor(4096,1,1);const chunks=[];let n=0,capStart=Infinity,skipUntil=0,armed=false;
+  const rt=S.retake;
   const an=ctx.createAnalyser();an.fftSize=4096;src.connect(an);
-  proc.onaudioprocess=e=>{if(ctx.currentTime<skipUntil)return;const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;
+  proc.onaudioprocess=e=>{if(!armed||ctx.currentTime<skipUntil)return;const d=e.inputBuffer.getChannelData(0);chunks.push(new Float32Array(d));n+=d.length;
     // when the first sample was captured, in the audio clock (the earliest estimate is the least delayed)
     capStart=Math.min(capStart,ctx.currentTime-n/ctx.sampleRate);
     if(n/ctx.sampleRate>MAXREC)stopRec()};
   const mute=ctx.createGain();mute.gain.value=0;src.connect(proc);proc.connect(mute);mute.connect(ctx.destination);
-  S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:performance.now(),trail:[],get n(){return n},get capStart(){return capStart}};
+  const r=S.rec={stream,src,proc,an,chunks,sr:ctx.sampleRate,t0:0,trail:[],armed:false,get n(){return n},get capStart(){return capStart}};
+  // nothing is recorded until Start is pressed: the microphone is only listening, so the level and the note can be checked first
+  r.arm=()=>{if(r.armed)return;r.armed=armed=true;r.t0=performance.now();
+    if(rt){const k=S.cur.song.ev[rt.i0].k;voice(ctx,k,ctx.currentTime+0.05,0.5,90,ctx.destination);skipUntil=ctx.currentTime+0.85}   // the phrase's first note, to start from
+    if(SET.click&&!rt&&!S.addPart&&!S.check&&!S.wordsTake){const beat=60/SET.bpm,first=ctx.currentTime+0.35;r.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
+      r.click.out.connect(ctx.destination);scheduleClicks();r.click.timer=setInterval(scheduleClicks,40);
+      $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
+    recButtons()};
   $('#recPhrase').hidden=!rt;if(rt)$('#recPhrase').textContent='Phrase '+(rt.pi+1)+': '+rt.text;
   if(S.check){$('#recPhrase').hidden=false;$('#recPhrase').textContent=S.check.tune.name}
   if(S.addPart){$('#recPhrase').hidden=false;$('#recPhrase').textContent='The next part of “'+(S.cur.title||'your song')+'”'}
   if(S.wordsTake){$('#recPhrase').hidden=false;$('#recPhrase').textContent='The words of “'+(S.cur.title||'your song')+'”'}
-  if(SET.click&&!rt&&!S.addPart&&!S.check&&!S.wordsTake){const beat=60/SET.bpm,first=ctx.currentTime+0.35;S.rec.click={bpm:SET.bpm,beats:SET.click,beat,first,downbeat:first+SET.click*beat,next:0,out:ctx.createGain()};
-    S.rec.click.out.connect(ctx.destination);scheduleClicks();S.rec.click.timer=setInterval(scheduleClicks,40);
-    $('#beatDots').innerHTML='<i></i>'.repeat(SET.click);$('#beatDots').hidden=false}
-  else $('#beatDots').hidden=true;
+  $('#beatDots').hidden=true;$('#recTime').textContent='0:00';recButtons();
   $('#liveNotes').innerHTML='';show('rec');liveLoop();
 }
 function tick(ctx,t,accent,vol,dest){const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=accent?1760:1175;o.type='sine';
@@ -990,11 +999,11 @@ function liveLoop(){const r=S.rec;if(!r)return;
   r.trail.push(midi);if(r.trail.length>240)r.trail.shift();
   // a rough running list of the notes as they are hummed (the proper working-out happens at the end)
   const L=r.live||(r.live={recent:[],cur:null,n:0,list:[]}),tn=performance.now();
-  if(!isNaN(midi)&&!(r.click&&AC.currentTime<r.click.downbeat)){L.recent.push(Math.round(midi));if(L.recent.length>5)L.recent.shift();const st=[...L.recent].sort((a,b)=>a-b)[L.recent.length>>1];
+  if(r.armed&&!isNaN(midi)&&!(r.click&&AC.currentTime<r.click.downbeat)){L.recent.push(Math.round(midi));if(L.recent.length>5)L.recent.shift();const st=[...L.recent].sort((a,b)=>a-b)[L.recent.length>>1];
     if(L.cur&&L.cur.k===st)L.cur.seen=tn;else{L.cur={k:st,t0:tn,seen:tn,shown:false}}
     if(L.cur&&!L.cur.shown&&tn-L.cur.t0>=130){L.cur.shown=true;L.list.push(st);const e=document.createElement('span');e.textContent=TC.noteName(st);const box=$('#liveNotes');box.appendChild(e);while(box.children.length>14)box.firstChild.remove()}}
   else if(L.cur&&tn-L.cur.seen>95){L.cur=null;L.recent=[]}
-  const secs=(performance.now()-r.t0)/1000;
+  const secs=r.armed?(performance.now()-r.t0)/1000:0;
   $('#recTime').textContent=`${Math.floor(secs/60)}:${String(Math.floor(secs%60)).padStart(2,'0')}`;
   const ck=r.click,now=AC.currentTime;let counting=false;
   if(ck){const b=Math.floor((now-ck.first)/ck.beat);counting=now<ck.downbeat;const bi=((b%ck.beats)+ck.beats)%ck.beats,frac=(now-ck.first)/ck.beat-b;
@@ -1246,7 +1255,7 @@ const EXPORTS={
 function init(){
   // keys for the key menu
   const ks=$('#keySel');for(const mode of ['major','minor'])for(let f=-6;f<=6;f++){const K=TC.keyFromFifths(f,mode);const o=document.createElement('option');o.value=`${f}|${mode}`;o.textContent=K.name;ks.appendChild(o)}
-  $('#catch').onclick=startRec;$('#stop').onclick=stopRec;$('#cancel').onclick=cancelRec;
+  $('#catch').onclick=startRec;$('#stop').onclick=()=>{const r=S.rec;if(r&&!r.armed)r.arm();else stopRec()};$('#cancel').onclick=cancelRec;
   $('#file').onchange=e=>{openFile(e.target.files[0]);e.target.value=''};
   $('#home').onclick=()=>{stopPlay();if(S.rec)cancelRec();S.check=null;show('home')};
   $('#again').onclick=()=>{stopPlay();startRec()};
