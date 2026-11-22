@@ -898,7 +898,7 @@ const saveSet=()=>store.set('tc.settings',SET);
 let AC=null;const ac=()=>{if(!AC){const C=window.AudioContext||window.webkitAudioContext;AC=new C()}if(AC.state==='suspended')AC.resume();return AC};
 
 /* ---------- recordings kept on the device (IndexedDB), so they can be played, tapped to and shared later ---------- */
-const BUILD='2026-11-20 16:30 99c740c';
+const BUILD='2026-11-22 07:25 099b453';
 let DB=null;const idb=()=>DB||(DB=new Promise((res,rej)=>{const q=indexedDB.open('tunecatcher',1);q.onupgradeneeded=()=>{const st=q.result.createObjectStore('rec',{keyPath:'id',autoIncrement:true});st.createIndex('song','songId')};q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error)}));
 const tx=async(mode,fn)=>{const db=await idb();return new Promise((res,rej)=>{const t=db.transaction('rec',mode),st=t.objectStore('rec');let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error)})};
 async function recPut(songId,kind,x,sr){try{const pcm=new Int16Array(x.length);for(let i=0;i<x.length;i++)pcm[i]=Math.max(-32767,Math.min(32767,Math.round(x[i]*32767)));
@@ -1214,7 +1214,11 @@ function tapUse(){tapStop();$('#tapDlg').close();const c=S.cur;
 
 /* ---------- export ---------- */
 const safe=t=>(t||'tune').replace(/[^\w\- ]+/g,'').trim().replace(/\s+/g,'_')||'tune';
+const b64=blob=>new Promise(res=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.readAsDataURL(blob)});
+// inside the Android app there is no browser download or share: the files go to Android's own share sheet
+async function nativeShare(files,title){const out=[];for(const [b,n] of files)out.push({name:n,mime:b.type||'application/octet-stream',b64:await b64(b)});window.TCNative.share(JSON.stringify(out),title||files[0][1])}
 async function give(blob,name){
+  if(window.TCNative)return nativeShare([[blob,name]],name);
   if(navigator.canShare&&window.File){const f=new File([blob],name,{type:blob.type});if(navigator.canShare({files:[f]})){try{await navigator.share({files:[f],title:name});return}catch(e){if(e.name==='AbortError')return}}}
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1500)}
 function wav(x,sr){const n=x.length,b=new DataView(new ArrayBuffer(44+n*2));const w=(o,t)=>{for(let i=0;i<t.length;i++)b.setUint8(o+i,t.charCodeAt(i))};
@@ -1222,6 +1226,7 @@ function wav(x,sr){const n=x.length,b=new DataView(new ArrayBuffer(44+n*2));cons
   for(let i=0;i<n;i++)b.setInt16(44+i*2,Math.max(-32767,Math.min(32767,Math.round(x[i]*32767))),true);return new Blob([b],{type:'audio/wav'})}
 function saveHum(title){if(!S.audio){toast('The recording is only kept until you leave this catch.');return}give(wav(S.audio.x,S.audio.sr),safe(title)+'.wav')}
 async function giveMany(files){
+  if(window.TCNative)return nativeShare(files,'Tunecatcher recordings');
   if(navigator.canShare&&window.File){const fs=files.map(([b,n])=>new File([b],n,{type:b.type}));if(navigator.canShare({files:fs})){try{await navigator.share({files:fs,title:'Tunecatcher recordings'});return}catch(e){if(e.name==='AbortError')return}}}
   for(const [b,n] of files){await give(b,n);await new Promise(r=>setTimeout(r,400))}}
 function details(c){return JSON.stringify({app:'Tunecatcher',build:BUILD,device:navigator.userAgent,screen:innerWidth+'x'+innerHeight,audio:AC?{rate:AC.sampleRate,base:AC.baseLatency,out:AC.outputLatency}:null,settings:SET,song:c||null,checks:c?undefined:store.get('tc.checks',[])},null,1)}
@@ -1234,7 +1239,7 @@ const EXPORTS={
   midi:()=>give(new Blob([TC.toMIDI(S.cur.song)],{type:'audio/midi'}),safe(S.cur.title)+'.mid'),
   xml:()=>give(new Blob([TC.toMusicXML(S.cur.song,{title:S.cur.title})],{type:'application/vnd.recordare.musicxml+xml'}),safe(S.cur.title)+'.musicxml'),
   abc:()=>give(new Blob([TC.toABC(S.cur.song,{title:S.cur.title}).abc],{type:'text/plain'}),safe(S.cur.title)+'.abc'),
-  print:()=>{$('#printTitle').textContent=S.cur.title||'';window.print()},
+  print:()=>{$('#printTitle').textContent=S.cur.title||'';if(window.TCNative)window.TCNative.print(S.cur.title||'Tunecatcher');else window.print()},
 };
 
 /* ---------- wiring ---------- */
@@ -1284,11 +1289,13 @@ function init(){
   $('#helpBtn').onclick=()=>$('#help').showModal();$('#helpClose').onclick=()=>$('#help').close();
   let rt=0;window.addEventListener('resize',()=>{if(S.view!=='result')return;clearTimeout(rt);rt=setTimeout(render,200)});
   if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('#catch').disabled=true;$('#noMic').hidden=false}
-  $('#buildNo').textContent='Version '+BUILD;
+  $('#buildNo').textContent='Version '+BUILD+(window.TCNative?' · Android app '+window.TCNative.version():'');
   show('home');
-  if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker' in navigator&&location.protocol==='https:'&&!window.TCNative)navigator.serviceWorker.register('sw.js').catch(()=>{});
 }
 document.readyState==='loading'?document.addEventListener('DOMContentLoaded',init):init();
+// the Android back button: close what is open, go back a screen; false means leave the app
+window.TCBack=()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true}if(S.rec){cancelRec();return true}if(S.view==='home')return false;stopPlay();S.check=null;show('home');return true};
 // for tests
 window.TCAPP={S,TAP,tapUse,checkDone,analysePart,singPhrase,analyseRetake,SET,listenWords,onWords,analyse,openResult,render,select,edit,OPS,setMetre,setTempo,EXPORTS};
 })();
